@@ -1,31 +1,30 @@
-#pragma once
+#ifndef HTTPRESPONSE_HPP
+# define HTTPRESPONSE_HPP
 
-#include <string>
-#include <map>
-#include <vector>
+# include <string>
+# include <map>
+# include <vector>
 
 class HttpResponse
 {
     public:
-
-        int             statusCode;
-        std::string     statusText;
-
-        std::string     headers;
-        
-        std::vector<char>  body;
+        int                                 statusCode;
+        std::string                         statusText;
+        std::map<std::string, std::string>  headers;
+        std::vector<char>                   body;
 
         HttpResponse();
         ~HttpResponse();
 
         void        setStatus(int code);
-        void        setHeader(const std::string& key, const std::string& value);
-        void        setBody(const std::string& content);
-        void        setBody(const std::vector<char>& content);
+        void        setHeader(const std::string &key, const std::string &value);
+        void        setBody(const std::string &content);
+        void        setBody(const std::vector<char> &content);
         std::string serialize() const;
         void        reset();
 
     private:
         static std::string _getStatusText(int code);
-    
 };
+
+#endif
