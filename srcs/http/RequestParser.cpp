@@ -16,6 +16,7 @@ HttpRequest &RequestParser::getRequest()
     return _request;
 }
 
+//parsing
 RequestParser::ParseResult RequestParser::feed(std::string &buffer)
 {
     while(_State != STATE_COMPLETE && _State != STATE_ERROR)
@@ -42,8 +43,87 @@ RequestParser::ParseResult RequestParser::feed(std::string &buffer)
     return ();
 }
 
+RequestParser::ParseResult RequestParser::_parseRequestLine(std::string &buffer)
+{
+    size_t pos = buffer.find("\r\n");
+    if(pos == std::string::npos)
+    {
+        if(buffer.length() > 8192)
+        {
+            _state = STATE_ERROR;
+            return PARSE_ERROR;
+        }
+        return PARSE_INCOMPLETE;
+    }
+
+    std::string line = buffer.substr(0, pos);
+    buffer.erase(0, pos + 2);
+
+    std::vector<std::string> tokens;
+    std::istringstream iss(line);
+    std::string token;
+
+    while(iss >> token)
+        tokens.push_back(token);
+
+    if(token.size != 3)
+    {
+        _state = STATE_ERROR;
+        return PARSE_ERROR;
+    }
+
+    std::string method = tokens[0];
+    std::string rawUri = tokens[1];
+    std::string version = tokens[2];
+
+    if(!_isValidMethod(method) || !_isValidVersion(version) || !_isValidURI(rawUri))
+    {
+        _state = STATE_ERROR;
+        return PARSE_ERROR;
+    }
+
+    size_t qpos = rawUri.find('?');
+    std::string pathOnly = (qpos != std::string::npos) ? rawUri.substr(0, qpos) : rawUri;
+    std::string queryString = (qpos != std::string::npos) ? rawUri.substr(qpos + 1) : "";
+
+    std::string decodedPath = _decodeURI(pathOnly);
+    if(decodedPath.empty())
+    {
+        _state = STATE_ERROR;
+        return PARSE_ERROR;
+    }
+
+    _request.method = method;
+    _request.uri = decodedPath;
+    _request.querystring = queryString;
+    _request.version = version;
+
+    _state = STATE_HEADERS;
+    return PARSE_COMPLETE;
+}
+
+RequestParser::ParseResult RequestParser::_parseHeaders(std::string &buffer)
+{
+    while(true)
+    {
+        size_t pos = buffer.find("/r/n");
+        if(pos == std::string::npos)
+        {
+            if(buffer.length() > 32768)
+            {
+                _state = STATE_ERROR;
+                return PARSE_ERROR;
+            }
+            return PARSE_INCOMPLETE;
+        }
+
+        
+    }
+}
 
 
+
+//validation: 
 bool RequestParser::_isValidMethod(const std::string &method)
 {
     return (method == "GET" || method == "POST" || method == "DELETE");
