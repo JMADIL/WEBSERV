@@ -23,7 +23,7 @@ class HttpRequest
         ~HttpRequest();
     
         void        reset();
-        std::string getHeader(const std::string& key) const;
-        bool        hasHeader(const std::string& key) const;
+        std::string getHeader(const std::string &key) const;
+        bool        hasHeader(const std::string &key) const;
         bool        keepAlive() const;
 };
