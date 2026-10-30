@@ -25,7 +25,7 @@ void HttpRequest::reset()
 static std::string toLowerString(const std::string &str)
 {
     std::string lower = str;
-    for(size_t i = 0; i < lower.lenght(); ++i)
+    for(size_t i = 0; i < lower.length(); ++i)
     {
         lower[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(lower[i])));
     }

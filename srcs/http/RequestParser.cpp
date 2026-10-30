@@ -19,15 +19,15 @@ HttpRequest &RequestParser::getRequest()
 //parsing
 RequestParser::ParseResult RequestParser::feed(std::string &buffer)
 {
-    while(_State != STATE_COMPLETE && _State != STATE_ERROR)
+    while(_state != STATE_COMPLETE && _state != STATE_ERROR)
     {
-        if(_State == STATE_REQUEST_LINE)
+        if(_state == STATE_REQUEST_LINE)
         {
             ParseResult res = _parseRequestLine(buffer);
             if (res != PARSE_COMPLETE)
                 return res;
         }
-        else if(_State == STATE_HEADERS)
+        else if(_state == STATE_HEADERS)
         {
             ParseResult res = _parseHeaders(buffer);
             if (res != PARSE_COMPLETE)
@@ -35,11 +35,11 @@ RequestParser::ParseResult RequestParser::feed(std::string &buffer)
             if (_state == STATE_COMPLETE)
                 return PARSE_COMPLETE;
         }
-        else if (_State == STATE_BODY)
+        else if (_state == STATE_BODY)
         {
             return _parseBody(buffer);
         }
-        else if(_State == STATE_COMPLETE)
+        else if(_state == STATE_COMPLETE)
         {
             return _parseChunkedBody(buffer);
         }
@@ -70,7 +70,7 @@ RequestParser::ParseResult RequestParser::_parseRequestLine(std::string &buffer)
     while(iss >> token)
         tokens.push_back(token);
 
-    if(token.size != 3)
+    if(tokens.size() != 3)
     {
         _state = STATE_ERROR;
         return PARSE_ERROR;
@@ -147,7 +147,7 @@ RequestParser::ParseResult RequestParser::_parseHeaders(std::string &buffer)
             if(_request.hasHeader("content-length"))
             {
                 std::string clStr = _request.getHeader("content-length");
-                for(size_t i = 0; i < Clstr.length(); ++i)
+                for(size_t i = 0; i < clStr.length(); ++i)
                 {
                     if(!std::isdigit(static_cast<unsigned char>(clStr[i])))
                     {
@@ -225,7 +225,7 @@ RequestParser::ParseResult RequestParser::_parseChunkedBody(std::string &buffer)
         {
             size_t pos = buffer.find("\r\n");
             if(pos == std::string::npos)
-                return PARSE_INCOMPLETE;\
+                return PARSE_INCOMPLETE;
             
             std::string line = buffer.substr(0, pos);
 
@@ -236,7 +236,7 @@ RequestParser::ParseResult RequestParser::_parseChunkedBody(std::string &buffer)
             if(line.empty())
             {
                 _state = STATE_ERROR;
-                return PARSE_ERROR
+                return PARSE_ERROR;
             }
             
             for(size_t i = 0; i < line.length(); ++i)
@@ -367,6 +367,5 @@ std::string RequestParser::_decodeURI(const std::string &uri)
             return ""; // Reject path traversal attempt
         }
 
-    {
     return decoded;
 }
