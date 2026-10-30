@@ -3,7 +3,9 @@
 LocationBlock::LocationBlock()
     : _index("index.html"),
       _autoindex(false),
-      _redirectCode(0)
+      _redirectCode(0),
+      _clientMaxBodySize(1024 * 1024),
+      _hasBodySizeOverride(false)
 {
     _allowedMethods.push_back("GET");
 }
@@ -89,4 +91,25 @@ LocationBlock::getCgiExtension() const
 void LocationBlock::setCgiExtension(const std::string& extension, const std::string& interpreter)
 {
     _cgiExtension[extension] = interpreter;
+}
+std::size_t LocationBlock::getClientMaxBodySize() const
+{
+    return _clientMaxBodySize;
+}
+
+bool LocationBlock::hasBodySizeOverride() const
+{
+    return _hasBodySizeOverride;
+}
+
+void LocationBlock::setClientMaxBodySize(std::size_t bytes)
+{
+    _clientMaxBodySize = bytes;
+    _hasBodySizeOverride = true;
+}
+
+void LocationBlock::inheritClientMaxBodySize(std::size_t bytes)
+{
+    if (!_hasBodySizeOverride)
+        _clientMaxBodySize = bytes;
 }
