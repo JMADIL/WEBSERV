@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <limits>
 #include <set>
+#include <sys/stat.h>
 
 namespace
 {
@@ -31,6 +32,11 @@ bool punctuation(char c)
 
 std::vector<Token> tokenize(const std::string& file)
 {
+    struct stat info;
+    if (stat(file.c_str(), &info) != 0)
+        fail(file, 1, "cannot open configuration file");
+    if (!S_ISREG(info.st_mode))
+        fail(file, 1, "configuration must be a regular file");
     std::ifstream input(file.c_str(), std::ios::in | std::ios::binary);
     if (!input)
         fail(file, 1, "cannot open configuration file");
