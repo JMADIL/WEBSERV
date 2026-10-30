@@ -17,6 +17,8 @@ class LocationBlock
         std::string _redirectURL;
         std::string _uploadPath;
         std::map<std::string, std::string> _cgiExtension;
+        std::size_t _clientMaxBodySize;
+        bool        _hasBodySizeOverride;
 
     public:
         LocationBlock();
@@ -38,6 +40,10 @@ class LocationBlock
         void setUploadPath(const std::string& path);
         const std::map<std::string, std::string>& getCgiExtension() const;
         void setCgiExtension(const std::string& extension, const std::string& interpreter);
+        std::size_t getClientMaxBodySize() const;
+        bool hasBodySizeOverride() const;
+        void setClientMaxBodySize(std::size_t bytes);
+        void inheritClientMaxBodySize(std::size_t bytes);
 
 };
 #endif
