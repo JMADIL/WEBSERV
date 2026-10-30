@@ -1,4 +1,5 @@
 #include "Config.hpp"
+#include "Server.hpp"
 #include <cstdlib>
 #include <exception>
 #include <iostream>
@@ -17,6 +18,8 @@ int main(int argc, char** argv)
         const char* path = argc == 2 ? argv[1] : "configs/default.conf";
         Config config;
         config.load(path);
+        Server server(config);
+        server.initializeListeners();
 
         std::cout << "Configuration loaded: " << path << '\n';
         const std::vector<ServerBlock>& servers = config.getServers();
@@ -27,8 +30,8 @@ int main(int argc, char** argv)
                       << " (" << servers[i].getLocations().size()
                       << " locations)\n";
         }
-        // khas nbedlo had checkpoint bserver initialization/run
-        std::cout << "Configuration check complete. Server core is not implemented yet.\n";
+        // The next milestone keeps these listeners in a single poll event loop.
+        std::cout << "Listener setup complete. Event loop is not implemented yet.\n";
         std::cout.flush();
         if (!std::cout)
         {
