@@ -41,3 +41,4 @@ std::string MimeTypes::getType(const std::string &filepath)
     return "application/octet-stream";
 }
 
+
