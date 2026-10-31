@@ -9,9 +9,38 @@
 #include <memory>
 #include <sstream>
 #include <stdexcept>
+#include <csignal>
+#include <ctime>
+#include "ResponseBuilder.hpp"
 
 namespace
 {
+volatile std::sig_atomic_t stopping = 0;
+void stopServer(int) { stopping = 1; }
+class SignalPolicy
+{
+    typedef void (*Handler)(int);
+    Handler _interrupt;
+    Handler _terminate;
+    Handler _pipe;
+public:
+    SignalPolicy() {
+        stopping = 0;
+        _interrupt = std::signal(SIGINT, stopServer);
+        _terminate = std::signal(SIGTERM, stopServer);
+        _pipe = std::signal(SIGPIPE, SIG_IGN);
+        if (_interrupt == SIG_ERR || _terminate == SIG_ERR || _pipe == SIG_ERR) {
+            restore();
+            throw std::runtime_error("could not install signal policy");
+        }
+    }
+    ~SignalPolicy() { restore(); }
+    void restore() {
+        if (_interrupt != SIG_ERR) std::signal(SIGINT, _interrupt);
+        if (_terminate != SIG_ERR) std::signal(SIGTERM, _terminate);
+        if (_pipe != SIG_ERR) std::signal(SIGPIPE, _pipe);
+    }
+};
 class PendingSocket
 {
 public:
@@ -150,4 +179,107 @@ void Server::closeAll()
     for (std::size_t i = 0; i < _listeners.size(); ++i)
         close(_listeners[i].fd);
     _listeners.clear();
+}
+
+void Server::processInput(Client& client)
+{
+    RequestParser::ParseResult result = client.getParser().feed(client.getReadBuffer());
+    if (result == RequestParser::PARSE_HEADERS_COMPLETE) {
+        const LocationBlock* location = client.getServerBlock().matchLocation(client.getRequest().uri);
+        client.getParser().setBodyLimit(location ? location->getClientMaxBodySize()
+                                                : client.getServerBlock().getClientMaxBodySize());
+        result = client.getParser().feed(client.getReadBuffer());
+    }
+    if (result == RequestParser::PARSE_ERROR) {
+        client.setCloseAfterResponse(true);
+        ResponseBuilder::buildErrorResponse(client, client.getParser().getErrorCode(), &_config);
+    } else if (result == RequestParser::PARSE_COMPLETE) {
+        client.setState(STATE_BUILDING_RESPONSE);
+        ResponseBuilder::buildResponse(client, _config);
+    }
+}
+
+void Server::readClient(Client& client)
+{
+    char data[16384];
+    ssize_t received = recv(client.getFd(), data, sizeof(data), 0);
+    // Subject rule: do not inspect errno after socket transfers.
+    if (received <= 0) { closeClient(client.getFd()); return; }
+    client.markProgress();
+    client.getReadBuffer().append(data, static_cast<std::size_t>(received));
+    processInput(client);
+}
+
+void Server::writeClient(Client& client)
+{
+    std::size_t remaining = client.getPendingBytes();
+    if (remaining) {
+        std::size_t amount = remaining < 16384 ? remaining : 16384;
+        ssize_t sent = send(client.getFd(), client.getWriteBuffer().data() + client.getSentOffset(), amount, 0);
+        if (sent < 0) { closeClient(client.getFd()); return; }
+        if (sent == 0) return;
+        client.advanceWrite(static_cast<std::size_t>(sent)); client.markProgress();
+    }
+    if (client.getPendingBytes()) return;
+    if (client.getCloseAfterResponse()) { closeClient(client.getFd()); return; }
+    client.reset();
+    if (!client.getReadBuffer().empty()) processInput(client);
+}
+
+void Server::run()
+{
+    if (_listeners.empty()) throw std::logic_error("initialize listeners before run");
+    SignalPolicy signals;
+    std::time_t pauseAccept = 0;
+    while (!stopping) {
+        std::vector<pollfd> events;
+        std::time_t now = std::time(NULL);
+        for (std::size_t i = 0; i < _listeners.size(); ++i) {
+            pollfd event;
+            event.fd = _listeners[i].fd;
+            event.events = _clients.size() < MAX_CLIENTS && now >= pauseAccept ? POLLIN : 0;
+            event.revents = 0; events.push_back(event);
+        }
+        for (std::map<int, Client*>::iterator it = _clients.begin(); it != _clients.end(); ++it) {
+            pollfd event;
+            event.fd = it->first;
+            event.events = it->second->getState() == STATE_WRITING_RESPONSE ? POLLOUT : POLLIN;
+            event.revents = 0; events.push_back(event);
+        }
+        int ready = poll(&events[0], events.size(), 200);
+        if (ready < 0) {
+            if (errno == EINTR) continue;
+            setupError("poll", errno);
+        }
+        if (stopping) break;
+        for (std::size_t i = 0; i < events.size(); ++i) {
+            const pollfd& event = events[i];
+            if (!event.revents) continue;
+            if (i < _listeners.size()) {
+                if (event.revents & (POLLERR | POLLHUP | POLLNVAL))
+                    throw std::runtime_error("listening socket failed");
+                if (event.revents & POLLIN) {
+                    try { if (!acceptReady(event)) pauseAccept = std::time(NULL) + 1; }
+                    catch (const std::exception&) { pauseAccept = std::time(NULL) + 1; }
+                }
+                continue;
+            }
+            Client* client = getClient(event.fd);
+            if (!client) continue;
+            if (event.revents & (POLLERR | POLLNVAL)) { closeClient(event.fd); continue; }
+            try {
+                if (client->getState() == STATE_READING_REQUEST && (event.revents & POLLIN))
+                    readClient(*client);
+                else if (client->getState() == STATE_WRITING_RESPONSE && (event.revents & POLLOUT))
+                    writeClient(*client);
+                else if (event.revents & POLLHUP) closeClient(event.fd);
+            } catch (const std::exception&) { closeClient(event.fd); }
+        }
+        now = std::time(NULL);
+        for (std::map<int, Client*>::iterator it = _clients.begin(); it != _clients.end();) {
+            int fd = it->first; Client* client = it->second; ++it;
+            if (client->expired(now)) closeClient(fd);
+        }
+    }
+    closeAll();
 }

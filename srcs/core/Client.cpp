@@ -3,7 +3,8 @@
 
 Client::Client(int fd, const ServerBlock& server)
     : _fd(fd), _server(server), _state(STATE_READING_REQUEST),
-      _sentOffset(0), _closeAfterResponse(true)
+      _sentOffset(0), _closeAfterResponse(true),
+      _lastProgress(std::time(NULL)), _requestStart(_lastProgress)
 {
     if (fd < 0)
         throw std::invalid_argument("Client requires a valid socket descriptor");
@@ -38,8 +39,26 @@ void Client::advanceWrite(std::size_t bytes)
 
 void Client::resetTransport()
 {
+    reset();
+}
+
+void Client::reset()
+{
     _writeBuffer.clear();
     _sentOffset = 0;
     _closeAfterResponse = true;
     _state = STATE_READING_REQUEST;
+    _parser.reset();
+    _response.reset();
+    _lastProgress = std::time(NULL);
+    _requestStart = _lastProgress;
+}
+
+RequestParser& Client::getParser() { return _parser; }
+HttpRequest& Client::getRequest() { return _parser.getRequest(); }
+HttpResponse& Client::getResponse() { return _response; }
+void Client::markProgress() { _lastProgress = std::time(NULL); }
+bool Client::expired(std::time_t now) const
+{
+    return std::difftime(now, _lastProgress) >= 10 || std::difftime(now, _requestStart) >= 30;
 }

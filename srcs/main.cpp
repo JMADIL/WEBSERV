@@ -30,14 +30,14 @@ int main(int argc, char** argv)
                       << " (" << servers[i].getLocations().size()
                       << " locations)\n";
         }
-        // The next milestone keeps these listeners in a single poll event loop.
-        std::cout << "Listener setup complete. Event loop is not implemented yet.\n";
+        std::cout << "Server ready. Press Ctrl-C to stop.\n";
         std::cout.flush();
         if (!std::cout)
         {
             std::cerr << "webserv: could not write configuration summary\n";
             return EXIT_FAILURE;
         }
+        server.run();
         return EXIT_SUCCESS;
     }
     catch (const std::bad_alloc&)

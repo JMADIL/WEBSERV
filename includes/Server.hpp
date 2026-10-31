@@ -26,6 +26,7 @@ public:
     std::size_t getClientCount() const;
     void closeClient(int fd);
     void closeAll();
+    void run();
 
 private:
     Server(const Server&);
@@ -34,6 +35,9 @@ private:
     const Config& _config;
     std::vector<Listener> _listeners;
     std::map<int, Client*> _clients;
+    void processInput(Client& client);
+    void readClient(Client& client);
+    void writeClient(Client& client);
 };
 
 #endif

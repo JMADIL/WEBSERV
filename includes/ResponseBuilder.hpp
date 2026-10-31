@@ -1,21 +1,11 @@
 #ifndef RESPONSEBUILDER_HPP
-#define RESPONSEBUILDER_HPP
-
-# include "HttpRequest.hpp"
-# include "HttpResponse.hpp"
-# include "CgiHandler.hpp"
-# include "MimeTypes.hpp"
-
-// Forward declarations (teammate's classes)
+# define RESPONSEBUILDER_HPP
 class Client;
 class Config;
-class ServerBlock;
-class LocationBlock;
-
 class ResponseBuilder
 {
-    public:
-        
+public:
+    static void buildResponse(Client& client, const Config& config);
+    static void buildErrorResponse(Client& client, int status, const Config* config = 0);
 };
-
 #endif
