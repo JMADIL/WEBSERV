@@ -48,9 +48,9 @@ void ResponseBuilder::buildResponse(Client &client, const Config &config)
     bool methodAllowed = false;
     for (size_t i = 0; i < allowed.size(); ++i)
     {
-        if(allowed[i] == req.method)
+        if (allowed[i] == req.method)
         {
-            method[i] = true;
+            methodAllowed = true;
             break;
         }
     }
@@ -155,11 +155,11 @@ const LocationBlock *ResponseBuilder::_matchLocation(const std::string &uri, con
     for (size_t i = 0; i < locations.size(); ++i)
     {
         const std::string &locPath = locations[i].getPath();
-        if (uri.find(locPath) == 0)
+        if (!locPath.empty() && uri.find(locPath) == 0)
         {
-            if(uri.length() == locPath.length() || 
-            locPath[locPath.length() - 1] == '/'||
-            uri[locPath.length()] == '/')
+            if (uri.length() == locPath.length() || 
+                locPath[locPath.length() - 1] == '/' ||
+                uri[locPath.length()] == '/')
             {
                 if (locPath.length() > maxLen)
                 {
@@ -324,7 +324,7 @@ void ResponseBuilder::_handleDELETE(Client &client, const LocationBlock &loc, co
     res.body.clear();
 }
 
-void ResponseBuilder::_handleRedirect(Client &Client, const LocationBlock &loc)
+void ResponseBuilder::_handleRedirect(Client &client, const LocationBlock &loc)
 {
     HttpResponse &res = client.getResponse();
     res.setStatus(loc.getRedirectCode());

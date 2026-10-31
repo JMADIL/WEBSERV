@@ -57,5 +57,8 @@ bool HttpRequest::keepAlive() const
         if(conn == "keep-alive")
             return true;
     }
+
+    if (version == "HTTP/1.1")
+        return true;
     return false;
 }

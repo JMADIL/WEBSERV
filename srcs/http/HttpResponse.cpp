@@ -34,7 +34,7 @@ std::string HttpResponse::serialize() const
 {
     std::ostringstream oss;
 
-    oss << "HTTP/1.1" << statusCode << " " << statusText << "\r\n";
+    oss << "HTTP/1.1 " << statusCode << " " << statusText << "\r\n";
 
     bool hasContentLength = false;
     for (std::map<std::string, std::string>::const_iterator it = headers.begin();

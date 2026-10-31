@@ -16,6 +16,15 @@ HttpRequest &RequestParser::getRequest()
     return _request;
 }
 
+void RequestParser::reset()
+{
+    _state = STATE_REQUEST_LINE;
+    _bodyBytesRead = 0;
+    _chunkSize = 0;
+    _chunkSizeParsed = false;
+    _request.reset();
+}
+
 //parsing
 RequestParser::ParseResult RequestParser::feed(std::string &buffer)
 {
@@ -39,7 +48,7 @@ RequestParser::ParseResult RequestParser::feed(std::string &buffer)
         {
             return _parseBody(buffer);
         }
-        else if(_state == STATE_COMPLETE)
+        else if (_state == STATE_CHUNKED_BODY)
         {
             return _parseChunkedBody(buffer);
         }
@@ -110,7 +119,7 @@ RequestParser::ParseResult RequestParser::_parseHeaders(std::string &buffer)
 {
     while(true)
     {
-        size_t pos = buffer.find("/r/n");
+        size_t pos = buffer.find("\r\n");
         if(pos == std::string::npos)
         {
             if(buffer.length() > 32768)
@@ -230,7 +239,7 @@ RequestParser::ParseResult RequestParser::_parseChunkedBody(std::string &buffer)
             std::string line = buffer.substr(0, pos);
 
             size_t semi = line.find(';');
-            if(semi != pos)
+            if (semi != std::string::npos)
                 line = line.substr(0, semi);
             line = _trim(line);
             if(line.empty())
