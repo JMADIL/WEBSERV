@@ -22,6 +22,7 @@ class Client
 {
 public:
     Client(int fd, const ServerBlock& server);
+    ~Client();
 
     int getFd() const;
     int getListenPort() const;
@@ -43,7 +44,14 @@ public:
     HttpRequest& getRequest();
     HttpResponse& getResponse();
     void markProgress();
+    void beginResponseDeadline();
     bool expired(std::time_t now) const;
+    std::size_t bufferedBytes();
+    // Caller supplies headers and a verified regular-file fd; success transfers ownership.
+    void queueFile(int fd, std::size_t length, const std::string& headers);
+    int getFileFd() const;
+    bool hasFileBody() const;
+    void fillFileChunk();
 
 private:
     Client(const Client&);
@@ -60,6 +68,8 @@ private:
     HttpResponse _response;
     std::time_t _lastProgress;
     std::time_t _requestStart;
+    int _fileFd;
+    std::size_t _fileRemaining;
 };
 
 #endif
