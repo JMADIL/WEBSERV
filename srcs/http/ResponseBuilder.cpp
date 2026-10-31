@@ -271,7 +271,27 @@ void ResponseBuilder::_handlePOST(Client &client, const LocationBlock &loc, cons
         filename = oss.str();
     }
 
-    
+    std::string destPath = uploadDir;
+    if (destPath[destPath.length() - 1] != '/')
+        destPath += "/";
+    destPath += filename;
+
+    std::ofstream outfile(destPath.c_str(), std::ios::binary | std::ios::out);
+    if (!outfile.is_open())
+    {
+        buildErrorResponse(client, 500);
+        return;
+    }
+
+    if (!req.body.empty())
+    {
+        outfile.write(&req.body[0], req.body.size());
+    }
+    outfile.close();
+
+     res.setStatus(201);
+    res.setHeader("Content-Type", "text/plain");
+    res.setBody("File created and uploaded successfully.\r\n");
 }
 
 void ResponseBuilder::_handleRedirect(Client &Client, const LocationBlock &loc)
