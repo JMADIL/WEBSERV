@@ -12,6 +12,7 @@
 #include <csignal>
 #include <ctime>
 #include "ResponseBuilder.hpp"
+#include <sys/wait.h>
 
 namespace
 {
@@ -79,16 +80,28 @@ sockaddr_in addressFor(const ServerBlock& server)
 }
 }
 
-Server::Server(const Config& config) : _config(config) {}
+Server::Server(const Config& config, const CoreLimits& limits)
+    : _config(config), _limits(limits), _insideCgiCallback(false), _running(false)
+{
+    if (!limits.maxClients || limits.maxClients > MAX_CLIENTS
+        || !limits.maxListeners || limits.maxListeners > 1024
+        || !limits.maxCgiJobs || limits.maxCgiJobs > MAX_CLIENTS
+        || limits.bufferBudget < 65536 || !limits.maxCgiOutput
+        || limits.maxCgiOutput > limits.bufferBudget)
+        throw std::invalid_argument("invalid core resource limits");
+}
 Server::~Server() { closeAll(); }
 
 void Server::initializeListeners()
 {
+    if (_insideCgiCallback) throw std::logic_error("CGI callbacks cannot initialize listeners");
     if (!_listeners.empty())
         throw std::logic_error("listeners are already initialized");
     const std::vector<ServerBlock>& servers = _config.getServers();
     if (servers.empty())
         throw std::runtime_error("cannot start without a loaded configuration");
+    if (servers.size() > _limits.maxListeners)
+        throw std::runtime_error("configured listener count exceeds core limit");
     try
     {
         for (std::size_t i = 0; i < servers.size(); ++i)
@@ -132,6 +145,7 @@ const std::vector<Server::Listener>& Server::getListeners() const
 
 Client* Server::acceptReady(const struct pollfd& event)
 {
+    if (_insideCgiCallback) throw std::logic_error("CGI callbacks cannot accept clients");
     const ServerBlock* settings = NULL;
     for (std::size_t i = 0; i < _listeners.size(); ++i)
         if (_listeners[i].fd == event.fd)
@@ -140,7 +154,7 @@ Client* Server::acceptReady(const struct pollfd& event)
         throw std::invalid_argument("acceptReady requires a registered listener");
     if (!(event.revents & POLLIN) || (event.revents & POLLNVAL))
         return NULL;
-    if (_clients.size() >= MAX_CLIENTS)
+    if (_clients.size() >= _limits.maxClients || overBudget())
         return NULL;
     PendingSocket accepted(accept(event.fd, NULL, NULL));
     if (accepted.get() < 0)
@@ -151,7 +165,9 @@ Client* Server::acceptReady(const struct pollfd& event)
     if (!_clients.insert(std::make_pair(accepted.get(), client.get())).second)
         throw std::logic_error("client descriptor is already registered");
     accepted.release();
-    return client.release();
+    Client* stored = client.release();
+    if (overBudget()) { closeClient(stored->getFd()); return NULL; }
+    return stored;
 }
 
 Client* Server::getClient(int fd)
@@ -164,6 +180,9 @@ std::size_t Server::getClientCount() const { return _clients.size(); }
 
 void Server::closeClient(int fd)
 {
+    if (_insideCgiCallback) throw std::logic_error("CGI callbacks cannot remove clients");
+    std::list<CgiJob>::iterator job = findCgi(fd);
+    if (job != _cgiJobs.end()) cancelCgi(job);
     std::map<int, Client*>::iterator it = _clients.find(fd);
     if (it == _clients.end())
         return;
@@ -174,11 +193,169 @@ void Server::closeClient(int fd)
 
 void Server::closeAll()
 {
+    if (_insideCgiCallback) throw std::logic_error("CGI callbacks cannot close the server");
     while (!_clients.empty())
         closeClient(_clients.begin()->first);
     for (std::size_t i = 0; i < _listeners.size(); ++i)
         close(_listeners[i].fd);
     _listeners.clear();
+    // No blocking wait: kill canceled children, then reap them when they exit.
+    while (!_retiredJobs.empty()) {
+        pollCgiChildren();
+        if (!_retiredJobs.empty()) poll(NULL, 0, 10);
+    }
+}
+
+std::list<Server::CgiJob>::iterator Server::findCgi(int clientFd)
+{
+    std::list<CgiJob>::iterator it = _cgiJobs.begin();
+    while (it != _cgiJobs.end() && it->clientFd != clientFd) ++it;
+    return it;
+}
+
+bool Server::ownsFd(int fd) const
+{
+    if (_clients.count(fd)) return true;
+    for (std::size_t i = 0; i < _listeners.size(); ++i)
+        if (_listeners[i].fd == fd) return true;
+    for (std::map<int, Client*>::const_iterator it = _clients.begin(); it != _clients.end(); ++it)
+        if (it->second->getFileFd() == fd) return true;
+    for (std::list<CgiJob>::const_iterator it = _cgiJobs.begin(); it != _cgiJobs.end(); ++it)
+        if (it->inputFd == fd || it->outputFd == fd) return true;
+    return false;
+}
+
+void Server::attachCgi(int clientFd, pid_t pid, int inputFd, int outputFd,
+                       CgiCallbacks& callbacks, unsigned int timeoutSeconds,
+                       std::size_t maxOutputBytes)
+{
+    Client* client = getClient(clientFd);
+    if (_insideCgiCallback || !client || client->getState() != STATE_BUILDING_RESPONSE || pid <= 0
+        || client->getSentOffset() != 0
+        || inputFd < 0 || outputFd < 0 || inputFd == outputFd
+        || ownsFd(inputFd) || ownsFd(outputFd) || !timeoutSeconds || !maxOutputBytes
+        || findCgi(clientFd) != _cgiJobs.end())
+        throw std::invalid_argument("invalid CGI handoff");
+    if (_cgiJobs.size() + _retiredJobs.size() >= _limits.maxCgiJobs
+        || maxOutputBytes > _limits.maxCgiOutput || overBudget())
+        throw std::runtime_error("CGI resource limit reached");
+    for (std::list<CgiJob>::const_iterator it = _cgiJobs.begin(); it != _cgiJobs.end(); ++it)
+        if (it->pid == pid) throw std::invalid_argument("CGI child already registered");
+    for (std::list<CgiJob>::const_iterator it = _retiredJobs.begin(); it != _retiredJobs.end(); ++it)
+        if (it->pid == pid) throw std::invalid_argument("CGI child pending cleanup");
+    if (fcntl(inputFd, F_SETFL, O_NONBLOCK) < 0 || fcntl(outputFd, F_SETFL, O_NONBLOCK) < 0)
+        setupError("non-blocking CGI pipe", errno);
+    CgiJob job;
+    job.clientFd = clientFd; job.pid = pid; job.inputFd = inputFd; job.outputFd = outputFd;
+    job.inputOffset = 0; job.callbacks = &callbacks; job.started = std::time(NULL);
+    job.timeout = timeoutSeconds; job.limit = maxOutputBytes;
+    job.exited = false; job.waitStatus = 0; job.errorStatus = 0;
+    _cgiJobs.push_back(job);
+    client->setState(STATE_CGI_RUNNING);
+    client->getWriteBuffer().clear();
+    if (client->getRequest().body.empty()) {
+        close(_cgiJobs.back().inputFd);
+        _cgiJobs.back().inputFd = -1;
+    }
+}
+
+void Server::cancelCgi(std::list<CgiJob>::iterator job)
+{
+    if (job->inputFd >= 0) close(job->inputFd);
+    if (job->outputFd >= 0) close(job->outputFd);
+    job->inputFd = -1; job->outputFd = -1;
+    std::string().swap(job->output);
+    if (!job->exited) kill(job->pid, SIGKILL);
+    // Splice needs no allocation, even when cancellation follows bad_alloc.
+    _retiredJobs.splice(_retiredJobs.end(), _cgiJobs, job);
+}
+
+void Server::pollCgiChildren()
+{
+    for (std::list<CgiJob>::iterator it = _cgiJobs.begin(); it != _cgiJobs.end(); ++it) {
+        if (it->exited) continue;
+        pid_t result = waitpid(it->pid, &it->waitStatus, WNOHANG);
+        if (result == it->pid) it->exited = true;
+        else if (result < 0 && errno != EINTR) { it->errorStatus = 502; it->exited = true; }
+    }
+    for (std::list<CgiJob>::iterator it = _retiredJobs.begin(); it != _retiredJobs.end();) {
+        pid_t result = it->exited ? it->pid : waitpid(it->pid, &it->waitStatus, WNOHANG);
+        if (result == it->pid || (result < 0 && errno != EINTR))
+            it = _retiredJobs.erase(it);
+        else ++it;
+    }
+}
+
+void Server::transferCgi(const pollfd& event, int clientFd, bool input)
+{
+    std::list<CgiJob>::iterator it = findCgi(clientFd);
+    if (it == _cgiJobs.end() || it->errorStatus) return;
+    int fd = input ? it->inputFd : it->outputFd;
+    if (fd != event.fd || fd < 0) return;
+    Client* client = getClient(clientFd);
+    if (!client) { cancelCgi(it); return; }
+    if (event.revents & POLLNVAL) { it->errorStatus = 502; return; }
+    if (input) {
+        if (event.revents & (POLLERR | POLLHUP)) { it->errorStatus = 502; return; }
+        if (!(event.revents & POLLOUT)) return;
+        const std::vector<char>& body = client->getRequest().body;
+        if (it->inputOffset > body.size()) { it->errorStatus = 502; return; }
+        if (it->inputOffset == body.size()) { close(fd); it->inputFd = -1; return; }
+        std::size_t remaining = body.size() - it->inputOffset;
+        std::size_t amount = remaining < 16384 ? remaining : 16384;
+        ssize_t n = write(fd, &body[it->inputOffset], amount);
+        if (n < 0) { it->errorStatus = 502; return; }
+        if (n > 0) { it->inputOffset += n; client->markProgress(); }
+        if (it->inputOffset == body.size()) { close(fd); it->inputFd = -1; }
+    } else {
+        // Linux pipe hangup may be delivered without POLLIN at empty EOF.
+        if (event.revents & POLLIN) {
+            char buffer[16384];
+            ssize_t n = read(fd, buffer, sizeof(buffer));
+            if (n < 0) { it->errorStatus = 502; return; }
+            if (n == 0) { close(fd); it->outputFd = -1; return; }
+            if (static_cast<std::size_t>(n) > it->limit - it->output.size()) {
+                it->errorStatus = 502; return;
+            }
+            if (overBudget()) { it->errorStatus = 502; std::string().swap(it->output); return; }
+            it->output.append(buffer, static_cast<std::size_t>(n)); client->markProgress();
+            if (overBudget()) { it->errorStatus = 502; std::string().swap(it->output); }
+        } else if (event.revents & POLLHUP) {
+            close(fd); it->outputFd = -1;
+        } else if (event.revents & POLLERR) it->errorStatus = 502;
+    }
+}
+
+void Server::finishCgiJobs()
+{
+    pollCgiChildren();
+    std::time_t now = std::time(NULL);
+    for (std::list<CgiJob>::iterator it = _cgiJobs.begin(); it != _cgiJobs.end();) {
+        std::list<CgiJob>::iterator current = it++;
+        bool complete = current->exited && current->outputFd < 0;
+        if (!current->errorStatus && !complete
+            && std::difftime(now, current->started) >= current->timeout) current->errorStatus = 504;
+        if (!current->errorStatus && !complete) continue;
+        Client* client = getClient(current->clientFd);
+        if (!client) { cancelCgi(current); continue; }
+        int fd = current->clientFd;
+        try {
+            client->setState(STATE_BUILDING_RESPONSE);
+            _insideCgiCallback = true;
+            if (current->errorStatus) current->callbacks->onCgiError(*client, current->errorStatus);
+            else current->callbacks->onCgiComplete(*client, current->output, current->waitStatus);
+            _insideCgiCallback = false;
+            if (client->getState() != STATE_WRITING_RESPONSE || client->getWriteBuffer().empty())
+                throw std::logic_error("CGI callback must queue a response");
+            if (overBudget()) throw std::runtime_error("CGI response exceeds buffer budget");
+            // Give output its own bounded phase after a potentially long CGI job.
+            client->beginResponseDeadline();
+        } catch (...) {
+            _insideCgiCallback = false;
+            cancelCgi(current); closeClient(fd); continue;
+        }
+        cancelCgi(current);
+    }
 }
 
 void Server::processInput(Client& client)
@@ -188,6 +365,14 @@ void Server::processInput(Client& client)
         const LocationBlock* location = client.getServerBlock().matchLocation(client.getRequest().uri);
         client.getParser().setBodyLimit(location ? location->getClientMaxBodySize()
                                                 : client.getServerBlock().getClientMaxBodySize());
+        std::size_t used = bufferedBytes();
+        std::size_t allowed = location ? location->getClientMaxBodySize()
+                                      : client.getServerBlock().getClientMaxBodySize();
+        if (!client.getRequest().isChunked && client.getRequest().contentLength <= allowed
+            && (used >= _limits.bufferBudget
+                || client.getRequest().contentLength > (_limits.bufferBudget - used) / 2)) {
+            refuseBusy(client); return;
+        }
         result = client.getParser().feed(client.getReadBuffer());
     }
     if (result == RequestParser::PARSE_ERROR) {
@@ -197,11 +382,13 @@ void Server::processInput(Client& client)
         client.setState(STATE_BUILDING_RESPONSE);
         ResponseBuilder::buildResponse(client, _config);
     }
+    if (overBudget()) closeClient(client.getFd());
 }
 
 void Server::readClient(Client& client)
 {
     char data[16384];
+    if (overBudget()) { closeClient(client.getFd()); return; }
     ssize_t received = recv(client.getFd(), data, sizeof(data), 0);
     // Subject rule: do not inspect errno after socket transfers.
     if (received <= 0) { closeClient(client.getFd()); return; }
@@ -221,6 +408,11 @@ void Server::writeClient(Client& client)
         client.advanceWrite(static_cast<std::size_t>(sent)); client.markProgress();
     }
     if (client.getPendingBytes()) return;
+    if (client.hasFileBody()) {
+        client.fillFileChunk();
+        if (overBudget()) closeClient(client.getFd());
+        return;
+    }
     if (client.getCloseAfterResponse()) { closeClient(client.getFd()); return; }
     client.reset();
     if (!client.getReadBuffer().empty()) processInput(client);
@@ -228,23 +420,46 @@ void Server::writeClient(Client& client)
 
 void Server::run()
 {
+    if (_running || _insideCgiCallback) throw std::logic_error("Server::run cannot be reentered");
     if (_listeners.empty()) throw std::logic_error("initialize listeners before run");
+    struct RunningGuard {
+        bool& flag;
+        explicit RunningGuard(bool& value) : flag(value) { flag = true; }
+        ~RunningGuard() { flag = false; }
+    } running(_running);
     SignalPolicy signals;
     std::time_t pauseAccept = 0;
+    std::vector<pollfd> events;
+    std::vector<int> pipeOwners;
+    std::vector<bool> pipeInputs;
+    events.reserve(_limits.maxListeners + _limits.maxClients + 2 * _limits.maxCgiJobs);
+    pipeOwners.reserve(2 * _limits.maxCgiJobs); pipeInputs.reserve(2 * _limits.maxCgiJobs);
     while (!stopping) {
-        std::vector<pollfd> events;
+        events.clear(); pipeOwners.clear(); pipeInputs.clear();
         std::time_t now = std::time(NULL);
         for (std::size_t i = 0; i < _listeners.size(); ++i) {
             pollfd event;
             event.fd = _listeners[i].fd;
-            event.events = _clients.size() < MAX_CLIENTS && now >= pauseAccept ? POLLIN : 0;
+            event.events = _clients.size() < _limits.maxClients && !overBudget()
+                && now >= pauseAccept ? POLLIN : 0;
             event.revents = 0; events.push_back(event);
         }
         for (std::map<int, Client*>::iterator it = _clients.begin(); it != _clients.end(); ++it) {
             pollfd event;
             event.fd = it->first;
-            event.events = it->second->getState() == STATE_WRITING_RESPONSE ? POLLOUT : POLLIN;
+            event.events = it->second->getState() == STATE_CGI_RUNNING ? 0 :
+                it->second->getState() == STATE_WRITING_RESPONSE ? POLLOUT : POLLIN;
             event.revents = 0; events.push_back(event);
+        }
+        std::size_t socketEvents = events.size();
+        for (std::list<CgiJob>::iterator it = _cgiJobs.begin(); it != _cgiJobs.end(); ++it) {
+            for (int direction = 0; direction < 2; ++direction) {
+                int fd = direction == 0 ? it->inputFd : it->outputFd;
+                if (fd < 0 || it->errorStatus) continue;
+                pollfd event;
+                event.fd = fd; event.events = direction == 0 ? POLLOUT : POLLIN; event.revents = 0;
+                events.push_back(event); pipeOwners.push_back(it->clientFd); pipeInputs.push_back(direction == 0);
+            }
         }
         int ready = poll(&events[0], events.size(), 200);
         if (ready < 0) {
@@ -255,6 +470,14 @@ void Server::run()
         for (std::size_t i = 0; i < events.size(); ++i) {
             const pollfd& event = events[i];
             if (!event.revents) continue;
+            if (i >= socketEvents) {
+                try { transferCgi(event, pipeOwners[i - socketEvents], pipeInputs[i - socketEvents]); }
+                catch (...) {
+                    std::list<CgiJob>::iterator job = findCgi(pipeOwners[i - socketEvents]);
+                    if (job != _cgiJobs.end()) job->errorStatus = 502;
+                }
+                continue;
+            }
             if (i < _listeners.size()) {
                 if (event.revents & (POLLERR | POLLHUP | POLLNVAL))
                     throw std::runtime_error("listening socket failed");
@@ -275,11 +498,34 @@ void Server::run()
                 else if (event.revents & POLLHUP) closeClient(event.fd);
             } catch (const std::exception&) { closeClient(event.fd); }
         }
+        finishCgiJobs();
         now = std::time(NULL);
         for (std::map<int, Client*>::iterator it = _clients.begin(); it != _clients.end();) {
             int fd = it->first; Client* client = it->second; ++it;
-            if (client->expired(now)) closeClient(fd);
+            if (client->getState() != STATE_CGI_RUNNING && client->expired(now)) closeClient(fd);
         }
     }
     closeAll();
+}
+
+std::size_t Server::bufferedBytes() const
+{
+    std::size_t total = 0;
+    for (std::map<int, Client*>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
+        std::size_t bytes = it->second->bufferedBytes();
+        if (bytes > _limits.bufferBudget - total) return _limits.bufferBudget;
+        total += bytes;
+    }
+    for (std::list<CgiJob>::const_iterator it = _cgiJobs.begin(); it != _cgiJobs.end(); ++it) {
+        if (it->output.capacity() > _limits.bufferBudget - total) return _limits.bufferBudget;
+        total += it->output.capacity();
+    }
+    return total;
+}
+bool Server::overBudget() const { return bufferedBytes() >= _limits.bufferBudget; }
+void Server::refuseBusy(Client& client)
+{
+    client.setCloseAfterResponse(true);
+    client.getWriteBuffer() = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    client.setState(STATE_WRITING_RESPONSE);
 }

@@ -46,5 +46,7 @@ test: $(NAME)
 	python3 tests/run_core_tests.py
 	python3 tests/run_http_parser_tests.py
 	python3 tests/test_http.py
+	python3 tests/test_cgi_core.py
+	python3 tests/test_resources.py
 
 -include $(DEPS)
