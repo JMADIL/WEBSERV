@@ -80,7 +80,7 @@ void ResponseBuilder::buildResponse(Client &client, const Config &config)
         return;
     }
 
-     if (req.method == "GET")
+    if (req.method == "GET")
         _handleGET(client, *loc, *server);
     else if (req.method == "POST")
         _handlePOST(client, *loc, *server);
@@ -292,6 +292,36 @@ void ResponseBuilder::_handlePOST(Client &client, const LocationBlock &loc, cons
      res.setStatus(201);
     res.setHeader("Content-Type", "text/plain");
     res.setBody("File created and uploaded successfully.\r\n");
+}
+
+void ResponseBuilder::_handleDELETE(Client &client, const LocationBlock &loc, const ServerBlock &server)
+{
+    (void)server;
+    const HttpRequest &req = client.getRequest();
+    HttpResponse &res = client.getResponse();
+    std::string path = _resolvePath(req.uri, loc);
+
+    if (!_fileExists(path))
+    {
+        buildErrorResponse(client, 404);
+        return;
+    }
+
+    if (_isDirectory(path))
+    {
+        buildErrorResponse(client, 403);
+        return;
+    }
+
+    if (std::remove(path.c_str()) != 0)
+    {
+        buildErrorResponse(client, 500);
+        return;
+    }
+
+    res.setStatus(204);
+    res.headers.clear();
+    res.body.clear();
 }
 
 void ResponseBuilder::_handleRedirect(Client &Client, const LocationBlock &loc)
