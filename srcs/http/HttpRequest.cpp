@@ -62,3 +62,47 @@ bool HttpRequest::keepAlive() const
         return true;
     return false;
 }
+
+std::string HttpRequest::getCookie(const std::string &name) const
+{
+    if (!hasHeader("cookie"))
+        return "";
+
+    std::string cookieHeader = getHeader("cookie");
+    size_t start = 0;
+
+    while (start < cookieHeader.length())
+    {
+        while (start < cookieHeader.length() && (cookieHeader[start] == ' ' || cookieHeader[start] == '\t'))
+            start++;
+        size_t end = cookieHeader.find(';', start);
+        if (end == std::string::npos)
+            end = cookieHeader.length();
+
+        std::string pair = cookieHeader.substr(start, end - start);
+        size_t eqPos = pair.find('=');
+
+        if (eqPos != std::string::npos)
+        {
+            std::string key = pair.substr(0, eqPos);
+            std::string val = pair.substr(eqPos + 1);
+
+            size_t kStart = key.find_first_not_of(" \t");
+            size_t kEnd = key.find_last_not_of(" \t");
+            if (kStart != std::string::npos)
+                key = key.substr(kStart, kEnd - kStart + 1);
+
+            if (key == name)
+            {
+                size_t vStart = val.find_first_not_of(" \t");
+                size_t vEnd = val.find_last_not_of(" \t");
+                if (vStart != std::string::npos)
+                    return val.substr(vStart, vEnd - vStart + 1);
+                return "";
+            }
+        }
+        start = end + 1;
+    }
+
+    return "";
+}

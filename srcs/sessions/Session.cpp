@@ -1,6 +1,6 @@
 #include "Session.hpp"
 
-Session::Session() : createdAT(time(NULL)), lastAccessedAt(time(NULL))
+Session::Session() : createdAt(time(NULL)), lastAccessedAt(time(NULL))
 {
 }
 

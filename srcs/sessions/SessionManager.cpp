@@ -1,6 +1,7 @@
 #include "SessionManager.hpp"
 #include <sstream>
 #include <cstdlib>
+#include <ctime>
 
 SessionManager::SessionManager(time_t sessionLifetime) : _sessionLifetime(sessionLifetime)
 {
