@@ -25,7 +25,7 @@ void HttpRequest::reset()
 static std::string toLowerString(const std::string &str)
 {
     std::string lower = str;
-    for(size_t i = 0; i < lower.lenght(); ++i)
+    for(size_t i = 0; i < lower.length(); ++i)
     {
         lower[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(lower[i])));
     }
@@ -52,10 +52,16 @@ bool HttpRequest::keepAlive() const
     if(hasHeader("connection"))
     {
         std::string conn = toLowerString(getHeader("connection"));
-        if(conn == "close")
-            return false;
-        if(conn == "keep-alive")
-            return true;
+        size_t start = 0;
+        while (start <= conn.size()) {
+            size_t end = conn.find(',', start);
+            std::string item = conn.substr(start, end - start);
+            size_t a = item.find_first_not_of(" \t");
+            if (a != std::string::npos && item.substr(a, item.find_last_not_of(" \t") - a + 1) == "close")
+                return false;
+            if (end == std::string::npos) break;
+            start = end + 1;
+        }
     }
-    return false;
+    return version == "HTTP/1.1";
 }

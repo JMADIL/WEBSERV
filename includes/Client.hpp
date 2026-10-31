@@ -4,6 +4,9 @@
 # include "ServerBlock.hpp"
 # include <string>
 # include <cstddef>
+# include <ctime>
+# include "RequestParser.hpp"
+# include "HttpResponse.hpp"
 
 enum ClientState
 {
@@ -35,6 +38,12 @@ public:
     bool getCloseAfterResponse() const;
     void setCloseAfterResponse(bool close);
     void resetTransport();
+    void reset();
+    RequestParser& getParser();
+    HttpRequest& getRequest();
+    HttpResponse& getResponse();
+    void markProgress();
+    bool expired(std::time_t now) const;
 
 private:
     Client(const Client&);
@@ -47,6 +56,10 @@ private:
     std::string _writeBuffer;
     std::size_t _sentOffset;
     bool _closeAfterResponse;
+    RequestParser _parser;
+    HttpResponse _response;
+    std::time_t _lastProgress;
+    std::time_t _requestStart;
 };
 
 #endif

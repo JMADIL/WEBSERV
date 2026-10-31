@@ -9,7 +9,11 @@ SRCS = srcs/main.cpp \
        srcs/config/ServerBlock.cpp \
        srcs/config/LocationBlock.cpp \
        srcs/core/Server.cpp \
-       srcs/core/Client.cpp
+       srcs/core/Client.cpp \
+       srcs/http/HttpRequest.cpp \
+       srcs/http/HttpResponse.cpp \
+       srcs/http/RequestParser.cpp \
+       srcs/http/ResponseBuilder.cpp
 OBJS = $(SRCS:%.cpp=build/%.o)
 DEPS = $(OBJS:.o=.d)
 
@@ -40,5 +44,7 @@ test: $(NAME)
 	python3 tests/run_config_tests.py
 	python3 tests/test_startup.py
 	python3 tests/run_core_tests.py
+	python3 tests/run_http_parser_tests.py
+	python3 tests/test_http.py
 
 -include $(DEPS)
