@@ -23,3 +23,5 @@ class SessionManager
 
         std::string _generateSessionId();
 };
+
+#endif

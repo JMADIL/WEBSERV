@@ -316,6 +316,16 @@ RequestParser::ParseResult RequestParser::_parseChunkedBody(std::string &buffer)
             _chunkSize = 0;
             _chunkSizeParsed = false;
         }
+        else if (_chunkSizeParsed && _chunkSize == 0)
+        {
+            size_t endPos = buffer.find("\r\n");
+            if (endPos == std::string::npos)
+                return PARSE_INCOMPLETE;
+
+            buffer.erase(0, endPos + 2);
+            _state = STATE_COMPLETE;
+            return PARSE_COMPLETE;
+        }
     }
 }
 
