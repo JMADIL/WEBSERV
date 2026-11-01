@@ -45,6 +45,8 @@ class ResponseBuilder
         static bool                 _isDirectory(const std::string &path);
         
         static std::vector<char>    _readFile(const std::string &path);
+
+        static bool _pathWithoutSymlinks(const std::string &path, bool allowMissingLeaf);
 };
 
 #endif

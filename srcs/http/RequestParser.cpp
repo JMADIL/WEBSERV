@@ -142,7 +142,7 @@ RequestParser::ParseResult RequestParser::_parseHeaders(std::string &buffer)
         if(pos == 0)
         {
             buffer.erase(0, 2);
-            if(!_request.hasHeader("host") || _request.getHeader("host").empty())
+            if (!_request.hasHeader("host") || _request.getHeader("host").empty())
             {
                 _state = STATE_ERROR;
                 return PARSE_ERROR;
@@ -152,7 +152,7 @@ RequestParser::ParseResult RequestParser::_parseHeaders(std::string &buffer)
                 _state = STATE_ERROR;
                 return PARSE_ERROR;
             }
-            if(_request.hasHeader("transfer-encoding"))
+            if (_request.hasHeader("transfer-encoding"))
             {
                 std::string te = _toLower(_request.getHeader("transfer-encoding"));
                 if (te == "chunked")
@@ -167,7 +167,7 @@ RequestParser::ParseResult RequestParser::_parseHeaders(std::string &buffer)
                     return PARSE_ERROR;
                 }
             }
-            if(_request.hasHeader("content-length"))
+            if (_request.hasHeader("content-length"))
             {
                 std::string clStr = _request.getHeader("content-length");
                 if (clStr.empty())

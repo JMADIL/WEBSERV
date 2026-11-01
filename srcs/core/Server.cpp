@@ -426,6 +426,11 @@ void Server::buildResponseForClient(Client& client)
         client.setCloseAfterResponse(true);
         client.getWriteBuffer() = client.getResponse().serialize();
     }
+    if (!cgi && client.getState() == STATE_WRITING_RESPONSE && client.getCloseAfterResponse())
+    {
+        client.getResponse().setHeader("Connection", "close");
+        client.getWriteBuffer() = client.getResponse().serialize();
+    }
 }
 
 void Server::readClient(Client& client)

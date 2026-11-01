@@ -17,6 +17,9 @@
 #include <ctime>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <cerrno>
 
 void ResponseBuilder::buildResponse(Client &client, const Config &config, SessionManager &sessions)
 {
@@ -110,7 +113,7 @@ void ResponseBuilder::buildErrorResponse(Client &client, int statusCode, const C
     res.setStatus(statusCode);
 
     std::string errorPagePath = (config != NULL) ? config->getErrorPage(statusCode) : "";
-    if (!errorPagePath.empty() && _fileExists(errorPagePath))
+    if (!errorPagePath.empty() && _fileExists(errorPagePath)  && _pathWithoutSymlinks(errorPagePath, false))
     {
         std::vector<char> pageContent = _readFile(errorPagePath);
         res.setBody(pageContent);
@@ -204,9 +207,16 @@ void ResponseBuilder::_handleGET(Client &client, const LocationBlock &loc, const
     HttpResponse &res = client.getResponse();
     std::string path = _resolvePath(req.uri, loc);
 
+    
     if (!_fileExists(path))
     {
         buildErrorResponse(client, 404);
+        return;
+    }
+    
+    if (!_pathWithoutSymlinks(path, false))
+    {
+        buildErrorResponse(client, 403);
         return;
     }
 
@@ -222,6 +232,11 @@ void ResponseBuilder::_handleGET(Client &client, const LocationBlock &loc, const
 
                 if (_fileExists(indexPath) && !_isDirectory(indexPath))
                 {
+                    if (!_pathWithoutSymlinks(indexPath, false))
+                    {
+                        buildErrorResponse(client, 403);
+                        return;
+                    }
                     std::vector<char> content = _readFile(indexPath);
                     res.setStatus(200);
                     res.setHeader("Content-Type", MimeTypes::getType(indexPath));
@@ -282,6 +297,12 @@ void ResponseBuilder::_handlePOST(Client &client, const LocationBlock &loc, cons
         destPath += "/";
     destPath += filename;
 
+    if (!_pathWithoutSymlinks(destPath, true))
+    {
+        buildErrorResponse(client, 403);
+        return;
+    }
+
     std::ofstream outfile(destPath.c_str(), std::ios::binary | std::ios::out);
     if (!outfile.is_open())
     {
@@ -310,6 +331,12 @@ void ResponseBuilder::_handleDELETE(Client &client, const LocationBlock &loc, co
     if (!_fileExists(path))
     {
         buildErrorResponse(client, 404);
+        return;
+    }
+
+    if (!_pathWithoutSymlinks(path, false))
+    {
+        buildErrorResponse(client, 403);
         return;
     }
 
@@ -344,8 +371,16 @@ void ResponseBuilder::_handleRedirect(Client &client, const LocationBlock &loc)
     res.setBody(oss.str());
 }
 
-void ResponseBuilder::_handleAutoindex(Client &client, const std::string &dirPath, const std::string &uri)
+void ResponseBuilder::_handleAutoindex(Client &client,
+                                      const std::string &dirPath,
+                                      const std::string &uri)
 {
+    if (!_pathWithoutSymlinks(dirPath, false))
+    {
+        buildErrorResponse(client, 403);
+        return;
+    }
+
     DIR *dir = opendir(dirPath.c_str());
     if (!dir)
     {
@@ -357,7 +392,7 @@ void ResponseBuilder::_handleAutoindex(Client &client, const std::string &dirPat
     std::string displayUri = uri;
     if (displayUri.empty() || displayUri[displayUri.length() - 1] != '/')
         displayUri += "/";
-    
+
     oss << "<!DOCTYPE html>\r\n"
         << "<html>\r\n"
         << "<head><title>Index of " << displayUri << "</title></head>\r\n"
@@ -365,49 +400,50 @@ void ResponseBuilder::_handleAutoindex(Client &client, const std::string &dirPat
         << "<h1>Index of " << displayUri << "</h1>\r\n"
         << "<hr>\r\n"
         << "<pre>\r\n";
-    
+
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL)
     {
         std::string name = entry->d_name;
-        if(name == ".")
+        if (name == "." || name == "..")
             continue;
-        
+
         std::string fullItemPath = dirPath;
-        if (fullItemPath[fullItemPath.length() - 1] != '/')
+        if (!fullItemPath.empty()
+            && fullItemPath[fullItemPath.length() - 1] != '/')
             fullItemPath += "/";
-        fullItemPath += name; 
+        fullItemPath += name;
+
+        if (!_pathWithoutSymlinks(fullItemPath, false))
+            continue;
 
         struct stat st;
+        if (stat(fullItemPath.c_str(), &st) != 0)
+            continue;
+
         std::string sizeStr = "-";
-        std::string dateStr = "";
+        std::string dateStr;
+        char timeBuf[64];
+        struct tm *tmInfo = std::localtime(&st.st_mtime);
+        if (tmInfo && std::strftime(timeBuf, sizeof(timeBuf),
+                                   "%d-%b-%Y %H:%M", tmInfo))
+            dateStr = timeBuf;
 
-        if (stat(fullItemPath.c_str(), &st) == 0)
+        if (S_ISDIR(st.st_mode))
+            name += "/";
+        else
         {
-            char timeBuf[64];
-            struct tm *tmInfo = std::localtime(&st.st_mtime);
-            if (tmInfo && std::strftime(timeBuf, sizeof(timeBuf), "%d-%b-%Y %H:%M", tmInfo))
-                dateStr = timeBuf;
-
-            if (S_ISDIR(st.st_mode))
-            {
-                name += "/";
-            }
-            else
-            {
-                std::ostringstream sizeOss;
-                sizeOss << st.st_size;
-                sizeStr = sizeOss.str();
-            }
+            std::ostringstream sizeOss;
+            sizeOss << st.st_size;
+            sizeStr = sizeOss.str();
         }
+
         std::string href = displayUri + name;
         oss << "<a href=\"" << href << "\">" << name << "</a>";
-
         if (name.length() < 40)
             oss << std::string(40 - name.length(), ' ');
         else
             oss << " ";
-
         oss << dateStr << "    " << sizeStr << "\r\n";
     }
     closedir(dir);
@@ -455,4 +491,60 @@ std::vector<char> ResponseBuilder::_readFile(const std::string &path)
         return buffer;
     
     return std::vector<char>();
+}
+
+bool ResponseBuilder::_pathWithoutSymlinks(const std::string &path, bool allowMissingLeaf)
+{
+    if (path.empty())
+        return false;
+
+    std::vector<std::string> parts;
+    size_t start = 0;
+    while (start < path.size())
+    {
+        size_t end = path.find('/', start);
+        if (end == std::string::npos)
+            end = path.size();
+        std::string part = path.substr(start, end - start);
+        if (part == "..")
+            return false;
+        if (!part.empty() && part != ".")
+            parts.push_back(part);
+        start = end + 1;
+    }
+
+    std::string current = path[0] == '/' ? "/" : "";
+    if (parts.empty())
+    {
+        int fd = open(current.empty() ? "." : "/",
+                      O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_DIRECTORY);
+        if (fd < 0)
+            return false;
+        close(fd);
+        return true;
+    }
+
+    for (size_t i = 0; i < parts.size(); ++i)
+    {
+        if (!current.empty() && current[current.size() - 1] != '/')
+            current += '/';
+        current += parts[i];
+
+        bool last = i + 1 == parts.size();
+        int flags = O_RDONLY | O_NONBLOCK | O_NOFOLLOW;
+        if (!last)
+            flags |= O_DIRECTORY;
+
+        int fd = open(current.c_str(), flags);
+        if (fd < 0)
+            return last && allowMissingLeaf && errno == ENOENT;
+
+        struct stat info;
+        bool valid = stat(current.c_str(), &info) == 0
+            && (S_ISREG(info.st_mode) || S_ISDIR(info.st_mode));
+        close(fd);
+        if (!valid)
+            return false;
+    }
+    return true;
 }
