@@ -14,7 +14,7 @@ port and rules for each URL location.
 The Config/Core owner implements configuration, startup, transport, resource
 ownership, the request parser adapter and all CGI. Adil owns the HTTP parser,
 response handlers, MIME types and bonus cookies/sessions. See the
-[current review](Docs/final_core_review.md) for known pending HTTP work.
+[current review](Docs/remaining_problems.md) for known pending HTTP work.
 
 ## Instructions
 
@@ -70,7 +70,7 @@ mandatory executable; the bonus is not yet integrated.
 - [Linux poll manual](https://man7.org/linux/man-pages/man2/poll.2.html): readiness
   events and descriptor monitoring.
 - [Configuration guide](Docs/config.md), [parser contract](Docs/request_parser_contract.md),
-  and [final review](Docs/final_core_review.md).
+  and [final review](Docs/remaining_problems.md).
 
 AI assistance was used to explain, implement, review and test configuration,
 Core, CGI and the integration adapter, and to draft documentation and test
