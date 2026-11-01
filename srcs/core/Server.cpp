@@ -370,7 +370,7 @@ void Server::finishCgiJobs()
                 // Redispatch only after callback return and the old job's cleanup.
                 pollCgiChildren();
                 client->applyCgiRedirect();
-                ResponseBuilder::buildResponse(*client, _config);
+                buildResponseForClient(*client);
             } catch (const std::exception&) { closeClient(fd); }
         }
     }
@@ -395,12 +395,37 @@ void Server::processInput(Client& client)
     }
     if (result == RequestParser::PARSE_ERROR) {
         client.setCloseAfterResponse(true);
-        ResponseBuilder::buildErrorResponse(client, client.getParser().getErrorCode(), &_config);
+        const Config requestConfig = _config.forServer(client.getServerBlock());
+        ResponseBuilder::buildErrorResponse(client, client.getParser().getErrorCode(), &requestConfig);
     } else if (result == RequestParser::PARSE_COMPLETE) {
         client.setState(STATE_BUILDING_RESPONSE);
-        ResponseBuilder::buildResponse(client, _config);
+        buildResponseForClient(client);
     }
     if (overBudget()) closeClient(client.getFd());
+}
+
+void Server::buildResponseForClient(Client& client)
+{
+    const Config requestConfig = _config.forServer(client.getServerBlock());
+    const LocationBlock* location = client.getServerBlock().matchLocation(client.getRequest().uri);
+    bool cgi = location && CgiHandler::isCgi(client.getRequest().uri, *location);
+    ResponseBuilder::buildResponse(client, requestConfig);
+    int status = client.getResponse().statusCode;
+    // Some imported file handlers omit Config when rendering errors. Supply the site context here.
+    if (!cgi && client.getState() == STATE_WRITING_RESPONSE && status >= 400
+        && !requestConfig.getErrorPage(status).empty()) {
+        std::map<std::string, std::string> headers = client.getResponse().headers;
+        ResponseBuilder::buildErrorResponse(client, status, &requestConfig);
+        for (std::map<std::string, std::string>::const_iterator it = headers.begin(); it != headers.end(); ++it) {
+            std::string name = it->first;
+            for (std::size_t i = 0; i < name.size(); ++i)
+                if (name[i] >= 'A' && name[i] <= 'Z') name[i] += 'a' - 'A';
+            if (name != "content-length" && name != "content-type")
+                client.getResponse().setHeader(it->first, it->second);
+        }
+        client.setCloseAfterResponse(true);
+        client.getWriteBuffer() = client.getResponse().serialize();
+    }
 }
 
 void Server::readClient(Client& client)

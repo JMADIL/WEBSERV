@@ -52,6 +52,7 @@ private:
     bool _insideCgiCallback;
     bool _running;
     void processInput(Client& client);
+    void buildResponseForClient(Client& client);
     void readClient(Client& client);
     void writeClient(Client& client);
     struct CgiJob {
