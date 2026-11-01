@@ -142,7 +142,7 @@ RequestParser::ParseResult RequestParser::_parseHeaders(std::string &buffer)
         if(pos == 0)
         {
             buffer.erase(0, 2);
-            if(!_request.hasHeader("host"))
+            if(!_request.hasHeader("host") || _request.getHeader("host").empty())
             {
                 _state = STATE_ERROR;
                 return PARSE_ERROR;
