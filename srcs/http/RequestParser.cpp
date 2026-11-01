@@ -2,8 +2,9 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <limits>
 
-RequestParser::RequestParser() : _state(STATE_REQUEST_LINE), _bodyBytesRead(0), _chunkSize(0), _chunkSizeParsed(false)
+RequestParser::RequestParser() : _state(STATE_REQUEST_LINE), _bodyBytesRead(0), _chunkSize(0), _chunkSizeParsed(false), _bodyLimit(std::numeric_limits<size_t>::max()), _errorCode(400)
 {
 }
 
@@ -22,6 +23,8 @@ void RequestParser::reset()
     _bodyBytesRead = 0;
     _chunkSize = 0;
     _chunkSizeParsed = false;
+    _bodyLimit = std::numeric_limits<size_t>::max();
+    _errorCode = 400;
     _request.reset();
 }
 
@@ -41,8 +44,7 @@ RequestParser::ParseResult RequestParser::feed(std::string &buffer)
             ParseResult res = _parseHeaders(buffer);
             if (res != PARSE_COMPLETE)
                 return res;
-            if (_state == STATE_COMPLETE)
-                return PARSE_COMPLETE;
+            return PARSE_HEADERS_COMPLETE;
         }
         else if (_state == STATE_BODY)
         {
@@ -224,6 +226,14 @@ RequestParser::ParseResult RequestParser::_parseHeaders(std::string &buffer)
 
 RequestParser::ParseResult RequestParser::_parseBody(std::string &buffer)
 {
+
+    if (_request.contentLength > _bodyLimit)
+    {
+        _errorCode = 413;
+        _state = STATE_ERROR;
+        return PARSE_ERROR;
+    }
+
    size_t remaining = _request.contentLength - _bodyBytesRead;
    if(buffer.empty())
    {
@@ -283,6 +293,14 @@ RequestParser::ParseResult RequestParser::_parseChunkedBody(std::string &buffer)
                 return PARSE_ERROR;
             }
 
+            if (_request.body.size() > _bodyLimit ||
+                size > _bodyLimit - _request.body.size())
+            {
+                _errorCode = 413;
+                _state = STATE_ERROR;
+                return PARSE_ERROR;
+            }
+
             buffer.erase(0, pos + 2);
             _chunkSize = size;
             _chunkSizeParsed = true;
@@ -301,7 +319,7 @@ RequestParser::ParseResult RequestParser::_parseChunkedBody(std::string &buffer)
 
         if (_chunkSizeParsed && _chunkSize > 0)
         {
-            if (buffer.size() < _chunkSize + 2)
+            if (buffer.size() < _chunkSize || buffer.size() - _chunkSize < 2)
                 return PARSE_INCOMPLETE;
 
             if (buffer[_chunkSize] != '\r' || buffer[_chunkSize + 1] != '\n')
@@ -405,4 +423,20 @@ std::string RequestParser::_decodeURI(const std::string &uri)
         }
 
     return decoded;
+}
+
+void RequestParser::setBodyLimit(size_t limit)
+{
+    _bodyLimit = limit;
+    if (_request.body.size() > limit ||
+        (!_request.isChunked && _request.contentLength > limit))
+    {
+        _errorCode = 413;
+        _state = STATE_ERROR;
+    }
+}
+
+int RequestParser::getErrorCode() const
+{
+    return _errorCode;
 }

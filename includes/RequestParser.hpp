@@ -11,7 +11,8 @@ class RequestParser
         {
             PARSE_INCOMPLETE,   // Need more data
             PARSE_COMPLETE,     // Full request parsed
-            PARSE_ERROR         // Malformed request
+            PARSE_ERROR,        // Malformed request
+            PARSE_HEADERS_COMPLETE
         };
 
         RequestParser();
@@ -21,6 +22,8 @@ class RequestParser
 
         HttpRequest &getRequest();
         void reset();
+        void setBodyLimit(size_t limit);
+        int getErrorCode() const;
     
     private:
         enum State
@@ -38,6 +41,8 @@ class RequestParser
         size_t      _bodyBytesRead;
         size_t      _chunkSize;
         bool        _chunkSizeParsed;
+        size_t      _bodyLimit;
+        int         _errorCode;
 
         ParseResult _parseRequestLine(std::string &buffer);
         ParseResult _parseHeaders(std::string &buffer);
