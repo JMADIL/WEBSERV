@@ -8,6 +8,8 @@
 # include "RequestParser.hpp"
 # include "HttpResponse.hpp"
 
+class Server;
+
 enum ClientState
 {
     STATE_READING_REQUEST,
@@ -21,12 +23,17 @@ enum ClientState
 class Client
 {
 public:
-    Client(int fd, const ServerBlock& server);
+    Client(int fd, const ServerBlock& server, Server* runtime = NULL);
     ~Client();
 
     int getFd() const;
     int getListenPort() const;
     const ServerBlock& getServerBlock() const;
+    // CGI uses the live server; ServerBlock only holds configuration.
+    Server* getRuntimeServer() const;
+    const std::string& getRemoteAddress() const;
+    unsigned short getRemotePort() const;
+    void setPeer(const std::string& address, unsigned short port);
     ClientState getState() const;
     void setState(ClientState state);
     std::string& getReadBuffer();
@@ -59,6 +66,9 @@ private:
 
     int _fd;
     const ServerBlock& _server;
+    Server* _runtime;
+    std::string _remoteAddress;
+    unsigned short _remotePort;
     ClientState _state;
     std::string _readBuffer;
     std::string _writeBuffer;

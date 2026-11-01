@@ -156,12 +156,19 @@ Client* Server::acceptReady(const struct pollfd& event)
         return NULL;
     if (_clients.size() >= _limits.maxClients || overBudget())
         return NULL;
-    PendingSocket accepted(accept(event.fd, NULL, NULL));
+    sockaddr_in peer;
+    socklen_t peerSize = sizeof(peer);
+    PendingSocket accepted(accept(event.fd, reinterpret_cast<sockaddr*>(&peer), &peerSize));
     if (accepted.get() < 0)
         return NULL;
     if (fcntl(accepted.get(), F_SETFL, O_NONBLOCK) < 0)
         setupError("non-blocking client", errno);
-    std::auto_ptr<Client> client(new Client(accepted.get(), *settings));
+    std::auto_ptr<Client> client(new Client(accepted.get(), *settings, this));
+    unsigned long ip = ntohl(peer.sin_addr.s_addr);
+    std::ostringstream peerAddress;
+    peerAddress << ((ip >> 24) & 255) << '.' << ((ip >> 16) & 255)
+                << '.' << ((ip >> 8) & 255) << '.' << (ip & 255);
+    client->setPeer(peerAddress.str(), ntohs(peer.sin_port));
     if (!_clients.insert(std::make_pair(accepted.get(), client.get())).second)
         throw std::logic_error("client descriptor is already registered");
     accepted.release();

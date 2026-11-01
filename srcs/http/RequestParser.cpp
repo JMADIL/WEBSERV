@@ -1,169 +1,380 @@
 #include "RequestParser.hpp"
-#include <limits>
+#include <sstream>
+#include <algorithm>
+#include <cctype>
 
-namespace {
-bool token(const std::string& value)
+RequestParser::RequestParser() : _state(STATE_REQUEST_LINE), _bodyBytesRead(0), _chunkSize(0), _chunkSizeParsed(false)
 {
-    if (value.empty()) return false;
-    for (std::size_t i = 0; i < value.size(); ++i) {
-        unsigned char c = value[i];
-        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-              || (c >= '0' && c <= '9') || std::string("!#$%&'*+-.^_`|~").find(c) != std::string::npos))
-            return false;
-    }
-    return true;
 }
-std::string lower(std::string s)
+
+RequestParser::~RequestParser()
 {
-    for (std::size_t i = 0; i < s.size(); ++i)
-        if (s[i] >= 'A' && s[i] <= 'Z') s[i] += 'a' - 'A';
-    return s;
 }
-std::string trim(const std::string& s)
+
+HttpRequest &RequestParser::getRequest()
 {
-    std::size_t a = s.find_first_not_of(" \t");
-    if (a == std::string::npos) return "";
-    return s.substr(a, s.find_last_not_of(" \t") - a + 1);
+    return _request;
 }
-bool number(const std::string& s, unsigned base, std::size_t& value)
-{
-    if (s.empty()) return false;
-    value = 0;
-    for (std::size_t i = 0; i < s.size(); ++i) {
-        char c = s[i];
-        unsigned digit = c >= '0' && c <= '9' ? c - '0' :
-            c >= 'a' && c <= 'f' ? c - 'a' + 10 :
-            c >= 'A' && c <= 'F' ? c - 'A' + 10 : base;
-        if (digit >= base || value > (std::numeric_limits<std::size_t>::max() - digit) / base)
-            return false;
-        value = value * base + digit;
-    }
-    return true;
-}
-bool path(const std::string& raw, std::string& normalized)
-{
-    if (raw.empty() || raw[0] != '/') return false;
-    std::string decoded;
-    for (std::size_t i = 0; i < raw.size(); ++i) {
-        unsigned char c = raw[i];
-        if (c == '%') {
-            std::size_t value;
-            if (i + 2 >= raw.size() || !number(raw.substr(i + 1, 2), 16, value)) return false;
-            c = static_cast<unsigned char>(value); i += 2;
-        }
-        if (c < 32 || c == 127 || c == '\\' || c == '#' || c == '?') return false;
-        decoded += c;
-    }
-    normalized = "/";
-    std::size_t start = 1;
-    while (start <= decoded.size()) {
-        std::size_t end = decoded.find('/', start);
-        std::string part = decoded.substr(start, end - start);
-        if (part == "..") return false;
-        if (!part.empty() && part != ".") {
-            if (normalized.size() > 1) normalized += '/';
-            normalized += part;
-        }
-        if (end == std::string::npos) break;
-        start = end + 1;
-    }
-    if (decoded.size() > 1 && decoded[decoded.size() - 1] == '/' && normalized.size() > 1)
-        normalized += '/';
-    return true;
-}
-}
-RequestParser::RequestParser() { reset(); }
+
 void RequestParser::reset()
 {
-    _state = LINE; _request.reset(); _headerBytes = 0; _remaining = 0;
-    _bodyLimit = 1024u * 1024u; _errorCode = 400;
+    _state = STATE_REQUEST_LINE;
+    _bodyBytesRead = 0;
+    _chunkSize = 0;
+    _chunkSizeParsed = false;
+    _request.reset();
 }
-HttpRequest& RequestParser::getRequest() { return _request; }
-int RequestParser::getErrorCode() const { return _errorCode; }
-RequestParser::ParseResult RequestParser::error(int code)
-{ _state = ERROR; _errorCode = code; return PARSE_ERROR; }
-void RequestParser::setBodyLimit(std::size_t bytes)
+
+//parsing
+RequestParser::ParseResult RequestParser::feed(std::string &buffer)
 {
-    _bodyLimit = bytes;
-    if (_request.body.size() > bytes || (!_request.isChunked && _request.contentLength > bytes))
-        error(413);
-}
-RequestParser::ParseResult RequestParser::feed(std::string& buffer)
-{
-    while (_state != COMPLETE && _state != ERROR) {
-        if (_state == BODY || _state == CHUNK_DATA) {
-            std::size_t n = buffer.size() < _remaining ? buffer.size() : _remaining;
-            if (n > _bodyLimit - _request.body.size()) return error(413);
-            _request.body.insert(_request.body.end(), buffer.begin(), buffer.begin() + n);
-            buffer.erase(0, n); _remaining -= n;
-            if (_remaining) return PARSE_INCOMPLETE;
-            _state = _state == BODY ? COMPLETE : CHUNK_END;
-            continue;
+    while(_state != STATE_COMPLETE && _state != STATE_ERROR)
+    {
+        if(_state == STATE_REQUEST_LINE)
+        {
+            ParseResult res = _parseRequestLine(buffer);
+            if (res != PARSE_COMPLETE)
+                return res;
         }
-        if (_state == CHUNK_END) {
-            if (buffer.size() < 2) return PARSE_INCOMPLETE;
-            if (buffer.compare(0, 2, "\r\n") != 0) return error(400);
-            buffer.erase(0, 2); _state = CHUNK_SIZE; continue;
+        else if(_state == STATE_HEADERS)
+        {
+            ParseResult res = _parseHeaders(buffer);
+            if (res != PARSE_COMPLETE)
+                return res;
+            if (_state == STATE_COMPLETE)
+                return PARSE_COMPLETE;
         }
-        std::size_t end = buffer.find("\r\n");
-        std::size_t limit = _state == LINE ? 8192 : 32768;
-        if (end == std::string::npos) {
-            if (buffer.size() > limit || (_state != LINE && buffer.size() > 32768 - _headerBytes))
-                return error(_state == LINE ? 414 : 431);
-            return PARSE_INCOMPLETE;
+        else if (_state == STATE_BODY)
+        {
+            return _parseBody(buffer);
         }
-        if (end > limit) return error(_state == LINE ? 414 : 431);
-        std::string line = buffer.substr(0, end); buffer.erase(0, end + 2);
-        if (_state == LINE) {
-            std::size_t a = line.find(' '), b = line.find(' ', a == std::string::npos ? 0 : a + 1);
-            if (a == std::string::npos || b == std::string::npos || line.find(' ', b + 1) != std::string::npos)
-                return error(400);
-            _request.method = line.substr(0, a); _request.version = line.substr(b + 1);
-            if (!token(_request.method)) return error(400);
-            if (_request.version != "HTTP/1.1") return error(505);
-            std::string target = line.substr(a + 1, b - a - 1);
-            for (std::size_t i = 0; i < target.size(); ++i)
-                if (static_cast<unsigned char>(target[i]) <= 32 || target[i] == 127 || target[i] == '#')
-                    return error(400);
-            std::size_t q = target.find('?');
-            _request.querystring = q == std::string::npos ? "" : target.substr(q + 1);
-            if (!path(target.substr(0, q), _request.uri)) return error(400);
-            _state = HEADERS;
-        } else if (_state == CHUNK_SIZE) {
-            // Chunk extensions are outside this basic parser's supported syntax.
-            if (!number(line, 16, _remaining)) return error(400);
-            if (_remaining > _bodyLimit - _request.body.size()) return error(413);
-            _state = _remaining ? CHUNK_DATA : TRAILERS;
-        } else {
-            if (end + 2 > 32768 - _headerBytes) return error(431);
-            _headerBytes += end + 2;
-            if (line.empty()) {
-                if (_state == TRAILERS) { _state = COMPLETE; continue; }
-                if (!_request.hasHeader("host") || _request.getHeader("host").empty()) return error(400);
-                if (_request.hasHeader("expect")) return error(417);
-                bool cl = _request.hasHeader("content-length"), te = _request.hasHeader("transfer-encoding");
-                if (cl && te) return error(400);
-                if (te && lower(_request.getHeader("transfer-encoding")) != "chunked") return error(501);
-                _request.isChunked = te;
-                if (cl && !number(_request.getHeader("content-length"), 10, _request.contentLength)) return error(400);
-                _remaining = _request.contentLength;
-                _state = te ? CHUNK_SIZE : _remaining ? BODY : COMPLETE;
-                return PARSE_HEADERS_COMPLETE;
-            }
-            std::size_t colon = line.find(':');
-            if (colon == std::string::npos || !token(line.substr(0, colon))) return error(400);
-            std::string key = lower(line.substr(0, colon)), value = trim(line.substr(colon + 1));
-            for (std::size_t i = 0; i < value.size(); ++i)
-                if ((static_cast<unsigned char>(value[i]) < 32 && value[i] != '\t') || value[i] == 127) return error(400);
-            if (_state == TRAILERS) {
-                if (key == "host" || key == "content-length" || key == "transfer-encoding") return error(400);
-                continue;
-            }
-            if (_request.hasHeader(key)) {
-                if (key == "host" || key == "content-length" || key == "transfer-encoding") return error(400);
-                _request.headers[key] += "," + value;
-            } else _request.headers[key] = value;
+        else if (_state == STATE_CHUNKED_BODY)
+        {
+            return _parseChunkedBody(buffer);
         }
     }
-    return _state == COMPLETE ? PARSE_COMPLETE : PARSE_ERROR;
+    return (_state == STATE_COMPLETE) ? PARSE_COMPLETE : PARSE_ERROR;
+}
+
+RequestParser::ParseResult RequestParser::_parseRequestLine(std::string &buffer)
+{
+    size_t pos = buffer.find("\r\n");
+    if(pos == std::string::npos)
+    {
+        if(buffer.length() > 8192)
+        {
+            _state = STATE_ERROR;
+            return PARSE_ERROR;
+        }
+        return PARSE_INCOMPLETE;
+    }
+
+    std::string line = buffer.substr(0, pos);
+    buffer.erase(0, pos + 2);
+
+    std::vector<std::string> tokens;
+    std::istringstream iss(line);
+    std::string token;
+
+    while(iss >> token)
+        tokens.push_back(token);
+
+    if(tokens.size() != 3)
+    {
+        _state = STATE_ERROR;
+        return PARSE_ERROR;
+    }
+
+    std::string method = tokens[0];
+    std::string rawUri = tokens[1];
+    std::string version = tokens[2];
+
+    if(!_isValidMethod(method) || !_isValidVersion(version) || !_isValidURI(rawUri))
+    {
+        _state = STATE_ERROR;
+        return PARSE_ERROR;
+    }
+
+    size_t qpos = rawUri.find('?');
+    std::string pathOnly = (qpos != std::string::npos) ? rawUri.substr(0, qpos) : rawUri;
+    std::string queryString = (qpos != std::string::npos) ? rawUri.substr(qpos + 1) : "";
+
+    std::string decodedPath = _decodeURI(pathOnly);
+    if(decodedPath.empty())
+    {
+        _state = STATE_ERROR;
+        return PARSE_ERROR;
+    }
+
+    _request.method = method;
+    _request.uri = decodedPath;
+    _request.querystring = queryString;
+    _request.version = version;
+
+    _state = STATE_HEADERS;
+    return PARSE_COMPLETE;
+}
+
+RequestParser::ParseResult RequestParser::_parseHeaders(std::string &buffer)
+{
+    while(true)
+    {
+        size_t pos = buffer.find("\r\n");
+        if(pos == std::string::npos)
+        {
+            if(buffer.length() > 32768)
+            {
+                _state = STATE_ERROR;
+                return PARSE_ERROR;
+            }
+            return PARSE_INCOMPLETE;
+        }
+
+        if(pos == 0)
+        {
+            buffer.erase(0, 2);
+            if(!_request.hasHeader("host"))
+            {
+                _state = STATE_ERROR;
+                return PARSE_ERROR;
+            }
+            if(_request.hasHeader("transfer-encoding"))
+            {
+                std::string te = _toLower(_request.getHeader("transfer-encoding"));
+                if (te == "chunked")
+                {
+                    _request.isChunked = true;
+                    _state = STATE_CHUNKED_BODY;
+                    return PARSE_COMPLETE;
+                }
+                else
+                {
+                    _state = STATE_ERROR;
+                    return PARSE_ERROR;
+                }
+            }
+            if(_request.hasHeader("content-length"))
+            {
+                std::string clStr = _request.getHeader("content-length");
+                for(size_t i = 0; i < clStr.length(); ++i)
+                {
+                    if(!std::isdigit(static_cast<unsigned char>(clStr[i])))
+                    {
+                        _state = STATE_ERROR;
+                        return PARSE_ERROR;
+                    }
+
+                }
+
+                std::istringstream clStream(clStr);
+                size_t length = 0;
+                clStream >> length;
+
+                _request.contentLength = length;
+                if(length > 0)
+                {
+                    _state = STATE_BODY;
+                    return PARSE_COMPLETE;
+                }
+            }
+            _state = STATE_COMPLETE;
+            return PARSE_COMPLETE;
+        }
+
+        std::string line = buffer.substr(0, pos);
+        buffer.erase(0, pos + 2);
+
+        size_t colon = line.find(':');
+        if(colon == std::string::npos)
+        {
+            _state = STATE_ERROR;
+            return PARSE_ERROR;
+        }
+
+        std::string key = _toLower(_trim(line.substr(0, colon)));
+        std::string value = _trim(line.substr(colon + 1));
+
+        if (key.empty())
+        {
+            _state = STATE_ERROR;
+            return PARSE_ERROR;
+        }
+
+        _request.headers[key] = value;
+    }
+}
+
+RequestParser::ParseResult RequestParser::_parseBody(std::string &buffer)
+{
+   size_t remaining = _request.contentLength - _bodyBytesRead;
+   if(buffer.empty())
+   {
+        return PARSE_INCOMPLETE;
+   }
+   size_t toRead = (buffer.size() < remaining) ? buffer.size() : remaining;
+
+   _request.body.insert(_request.body.end(), buffer.begin(), buffer.begin() + toRead);
+   buffer.erase(0, toRead);
+   _bodyBytesRead += toRead;
+
+    if (_bodyBytesRead >= _request.contentLength)
+    {
+        _state = STATE_COMPLETE;
+        return PARSE_COMPLETE;
+    }
+
+    return PARSE_INCOMPLETE;
+}
+
+RequestParser::ParseResult RequestParser::_parseChunkedBody(std::string &buffer)
+{
+    while(true)
+    {
+        if(!_chunkSizeParsed)
+        {
+            size_t pos = buffer.find("\r\n");
+            if(pos == std::string::npos)
+                return PARSE_INCOMPLETE;
+            
+            std::string line = buffer.substr(0, pos);
+
+            size_t semi = line.find(';');
+            if (semi != std::string::npos)
+                line = line.substr(0, semi);
+            line = _trim(line);
+            if(line.empty())
+            {
+                _state = STATE_ERROR;
+                return PARSE_ERROR;
+            }
+            
+            for(size_t i = 0; i < line.length(); ++i)
+            {
+                if (!std::isxdigit(static_cast<unsigned char>(line[i])))
+                {
+                    _state = STATE_ERROR;
+                    return PARSE_ERROR;
+                }
+            }
+
+            std::istringstream hexStream(line);
+            size_t size = 0;
+             if (!(hexStream >> std::hex >> size))
+            {
+                _state = STATE_ERROR;
+                return PARSE_ERROR;
+            }
+
+            buffer.erase(0, pos + 2);
+            _chunkSize = size;
+            _chunkSizeParsed = true;
+
+            if(_chunkSize == 0)
+            {
+                size_t endPos = buffer.find("\r\n");
+                if(endPos == std::string::npos)
+                    return PARSE_INCOMPLETE;
+                
+                buffer.erase(0, endPos + 2);
+                _state = STATE_COMPLETE;
+                return PARSE_COMPLETE;
+            }
+        }
+
+        if (_chunkSizeParsed && _chunkSize > 0)
+        {
+            if (buffer.size() < _chunkSize + 2)
+                return PARSE_INCOMPLETE;
+
+            if (buffer[_chunkSize] != '\r' || buffer[_chunkSize + 1] != '\n')
+            {
+                _state = STATE_ERROR;
+                return PARSE_ERROR;
+            }
+
+            _request.body.insert(_request.body.end(), buffer.begin(), buffer.begin() + _chunkSize);
+            buffer.erase(0, _chunkSize + 2);
+
+            _chunkSize = 0;
+            _chunkSizeParsed = false;
+        }
+    }
+}
+
+//validation: 
+bool RequestParser::_isValidMethod(const std::string &method)
+{
+    return (method == "GET" || method == "POST" || method == "DELETE");
+}
+
+bool RequestParser::_isValidURI(const std::string &uri)
+{
+    if (uri.empty() || uri[0] != '/')
+        return false;
+    return true;
+}
+
+bool RequestParser::_isValidVersion(const std::string &version)
+{
+    return (version == "HTTP/1.1");
+}
+
+std::string RequestParser::_trim(const std::string &str)
+{
+    size_t first = 0;
+    while (first < str.length() && (str[first] == ' ' || str[first] == '\t' || str[first] == '\r'))
+        first++;
+
+    if (first == str.length())
+        return "";
+
+    size_t last = str.length() - 1;
+    while (last > first && (str[last] == ' ' || str[last] == '\t' || str[last] == '\r'))
+        last--;
+
+    return str.substr(first, last - first + 1);
+}
+
+std::string RequestParser::_toLower(const std::string &str)
+{
+    std::string lower = str;
+    for (size_t i = 0; i < lower.length(); ++i)
+    {
+        lower[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(lower[i])));
+    }
+    return lower;
+}
+
+std::string RequestParser::_decodeURI(const std::string &uri)
+{
+    std::string decoded;
+    decoded.reserve(uri.length());
+
+    for(size_t i = 0; i < uri.length(); ++i)
+    {
+        if (uri[i] == '%' && i + 2 < uri.length() &&
+            std::isxdigit(static_cast<unsigned char>(uri[i + 1])) &&
+            std::isxdigit(static_cast<unsigned char>(uri[i + 2])))
+        {
+            std::string hexStr = uri.substr(i + 1, 2);
+            std::istringstream hexStream(hexStr);
+            int value = 0;
+            hexStream >> std::hex >> value;
+            decoded += static_cast<char>(value);
+            i += 2;
+        }
+        else
+        {
+            decoded += uri[i];
+        }
+    }
+
+    if (decoded.find("/../") != std::string::npos ||
+        decoded == ".." ||
+        (decoded.length() >= 3 && decoded.substr(decoded.length() - 3) == "/.."))
+        {
+            return ""; // Reject path traversal attempt
+        }
+
+    return decoded;
 }
