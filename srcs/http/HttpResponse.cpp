@@ -52,8 +52,7 @@ std::string HttpResponse::serialize() const
         oss << "Content-Length: " << body.size() << "\r\n";
     }
 
-    for (std::map<std::string, std::string>::const_iterator it = headers.begin();
-         it != headers.end(); ++it)
+    for (std::map<std::string, std::string>::const_iterator it = headers.begin(); it != headers.end(); ++it)
     {
         oss << it->first << ": " << it->second << "\r\n";
     }
@@ -102,6 +101,7 @@ std::string HttpResponse::_getStatusText(int code)
         case 500: return "Internal Server Error";
         case 501: return "Not Implemented";
         case 502: return "Bad Gateway";
+        case 503: return "Service Unavailable";
         case 504: return "Gateway Timeout";
         case 505: return "HTTP Version Not Supported";
 
