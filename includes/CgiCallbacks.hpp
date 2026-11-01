@@ -2,7 +2,7 @@
 # define CGICALLBACKS_HPP
 # include <string>
 class Client;
-// Implemented by the HTTP/CGI owner. Callbacks queue a response; they do not do I/O.
+// Callbacks queue a response or a deferred local redirect; no I/O or Server reentry.
 class CgiCallbacks
 {
 public:

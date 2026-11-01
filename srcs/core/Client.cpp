@@ -4,7 +4,7 @@
 #include <limits>
 
 Client::Client(int fd, const ServerBlock& server, Server* runtime)
-    : _fd(fd), _server(server), _runtime(runtime), _remotePort(0), _state(STATE_READING_REQUEST),
+    : _fd(fd), _server(server), _runtime(runtime), _remotePort(0), _cgiRedirectCount(0), _state(STATE_READING_REQUEST),
       _sentOffset(0), _closeAfterResponse(true),
       _lastProgress(std::time(NULL)), _requestStart(_lastProgress),
       _fileFd(-1), _fileRemaining(0)
@@ -22,6 +22,30 @@ const std::string& Client::getRemoteAddress() const { return _remoteAddress; }
 unsigned short Client::getRemotePort() const { return _remotePort; }
 void Client::setPeer(const std::string& address, unsigned short port)
 { _remoteAddress = address; _remotePort = port; }
+bool Client::hasCgiRedirect() const { return !_cgiRedirectPath.empty(); }
+void Client::requestCgiRedirect(const std::string& path, const std::string& query)
+{
+    if (_state != STATE_BUILDING_RESPONSE || _sentOffset != 0 || hasCgiRedirect())
+        throw std::logic_error("invalid deferred CGI redirect state");
+    if (path.empty() || path[0] != '/' || path.find('\0') != std::string::npos
+        || query.find('\0') != std::string::npos)
+        throw std::invalid_argument("invalid CGI local redirect target");
+    if (_cgiRedirectCount >= 5) throw std::invalid_argument("too many CGI local redirects");
+    _cgiRedirectPath = path; _cgiRedirectQuery = query;
+    ++_cgiRedirectCount;
+}
+void Client::applyCgiRedirect()
+{
+    if (!hasCgiRedirect()) throw std::logic_error("no CGI redirect pending");
+    HttpRequest& request = getRequest();
+    request.uri = _cgiRedirectPath; request.querystring = _cgiRedirectQuery;
+    if (request.method != "HEAD") request.method = "GET";
+    request.contentLength = 0; request.isChunked = false;
+    std::vector<char>().swap(request.body);
+    request.headers.erase("content-length"); request.headers.erase("content-type");
+    request.headers.erase("transfer-encoding"); request.headers.erase("expect");
+    std::string().swap(_cgiRedirectPath); std::string().swap(_cgiRedirectQuery);
+}
 ClientState Client::getState() const { return _state; }
 void Client::setState(ClientState state) { _state = state; }
 std::string& Client::getReadBuffer() { return _readBuffer; }
@@ -60,6 +84,8 @@ void Client::reset()
     _closeAfterResponse = true;
     _state = STATE_READING_REQUEST;
     _parser.reset();
+    std::string().swap(_cgiRedirectPath); std::string().swap(_cgiRedirectQuery);
+    _cgiRedirectCount = 0;
     _response.reset();
     std::vector<char>().swap(_parser.getRequest().body);
     std::vector<char>().swap(_response.body);
@@ -93,6 +119,7 @@ std::size_t Client::bufferedBytes()
     HttpRequest& request = _parser.getRequest();
     std::size_t bytes = sizeof(Client);
     addSize(bytes, _remoteAddress.capacity());
+    addSize(bytes, _cgiRedirectPath.capacity()); addSize(bytes, _cgiRedirectQuery.capacity());
     addSize(bytes, _readBuffer.capacity()); addSize(bytes, _writeBuffer.capacity());
     addSize(bytes, request.body.capacity()); addSize(bytes, _response.body.capacity());
     addSize(bytes, request.method.capacity()); addSize(bytes, request.uri.capacity());

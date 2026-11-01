@@ -69,6 +69,12 @@ RequestParser::ParseResult RequestParser::_parseRequestLine(std::string &buffer)
         return PARSE_INCOMPLETE;
     }
 
+    if (pos == 0)
+    {
+        buffer.erase(0, 2);
+        return PARSE_INCOMPLETE;
+    }
+
     std::string line = buffer.substr(0, pos);
     buffer.erase(0, pos + 2);
 
@@ -191,10 +197,22 @@ RequestParser::ParseResult RequestParser::_parseHeaders(std::string &buffer)
             return PARSE_ERROR;
         }
 
+        if (colon > 0 && (line[colon - 1] == ' ' || line[colon - 1] == '\t'))
+        {
+            _state = STATE_ERROR;
+            return PARSE_ERROR;
+        }
+
         std::string key = _toLower(_trim(line.substr(0, colon)));
         std::string value = _trim(line.substr(colon + 1));
 
         if (key.empty())
+        {
+            _state = STATE_ERROR;
+            return PARSE_ERROR;
+        }
+
+        if (key == "host" && _request.hasHeader("host"))
         {
             _state = STATE_ERROR;
             return PARSE_ERROR;

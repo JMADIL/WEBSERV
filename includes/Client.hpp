@@ -34,6 +34,9 @@ public:
     const std::string& getRemoteAddress() const;
     unsigned short getRemotePort() const;
     void setPeer(const std::string& address, unsigned short port);
+    bool hasCgiRedirect() const;
+    void requestCgiRedirect(const std::string& path, const std::string& query);
+    void applyCgiRedirect();
     ClientState getState() const;
     void setState(ClientState state);
     std::string& getReadBuffer();
@@ -69,6 +72,9 @@ private:
     Server* _runtime;
     std::string _remoteAddress;
     unsigned short _remotePort;
+    std::string _cgiRedirectPath;
+    std::string _cgiRedirectQuery;
+    unsigned int _cgiRedirectCount;
     ClientState _state;
     std::string _readBuffer;
     std::string _writeBuffer;

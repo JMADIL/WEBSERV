@@ -17,13 +17,16 @@ SRCS = srcs/main.cpp \
        srcs/utils/MimeTypes.cpp \
        srcs/cgi/CgiHandler.cpp \
        srcs/cgi/CgiBridge.cpp \
-       srcs/cgi/CgiLauncher.cpp
+       srcs/cgi/CgiLauncher.cpp \
+       srcs/cgi/CgiResponse.cpp \
+       srcs/sessions/Session.cpp \
+       srcs/sessions/SessionManager.cpp
 OBJS = $(SRCS:%.cpp=build/%.o)
 DEPS = $(OBJS:.o=.d)
 
 .DEFAULT_GOAL := all
 .DELETE_ON_ERROR:
-.PHONY: all clean fclean re test test-cgi-routing test-cgi-launch
+.PHONY: all clean fclean re test test-cgi-routing test-cgi-launch test-cgi-response test-cgi-core
 
 all: $(NAME)
 
@@ -48,6 +51,7 @@ test: $(NAME)
 	python3 tests/run_config_tests.py
 	python3 tests/run_cgi_routing_tests.py
 	python3 tests/test_cgi_launch.py
+	python3 tests/test_cgi_response.py
 	python3 tests/test_startup.py
 	python3 tests/run_core_tests.py
 	python3 tests/run_http_parser_tests.py
@@ -61,5 +65,11 @@ test-cgi-routing:
 
 test-cgi-launch:
 	python3 tests/test_cgi_launch.py
+
+test-cgi-response:
+	python3 tests/test_cgi_response.py
+
+test-cgi-core:
+	python3 tests/test_cgi_core.py --isolated
 
 -include $(DEPS)

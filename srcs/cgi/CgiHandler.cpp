@@ -1,5 +1,4 @@
 #include "CgiHandler.hpp"
-#include "Client.hpp"
 #include "LocationBlock.hpp"
 #include <stdexcept>
 
@@ -75,24 +74,4 @@ bool CgiHandler::isCgi(const std::string& uri, const LocationBlock& location)
 {
     Target target;
     return resolve(uri, location, target);
-}
-
-void CgiHandler::handle(Client& client, const LocationBlock& location)
-{
-    if (client.getState() != STATE_BUILDING_RESPONSE || client.getSentOffset() != 0)
-        throw std::logic_error("CGI routing requires an unsent response under construction");
-    Target target;
-    int status;
-    try { status = resolve(client.getRequest().uri, location, target) ? 501 : 404; }
-    catch (const std::invalid_argument&) { status = 400; }
-    // shortcut: routing only; launch/attachCgi and output parsing are steps 2 and 3.
-    HttpResponse& response = client.getResponse();
-    response.reset();
-    response.setStatus(status);
-    response.setHeader("Content-Type", "text/plain");
-    response.setBody(status == 501 ? "CGI execution is not implemented yet.\n" : "Invalid CGI route.\n");
-    client.setCloseAfterResponse(!client.getRequest().keepAlive());
-    response.setHeader("Connection", client.getCloseAfterResponse() ? "close" : "keep-alive");
-    client.getWriteBuffer() = response.serialize();
-    client.setState(STATE_WRITING_RESPONSE);
 }
