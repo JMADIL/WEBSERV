@@ -397,8 +397,27 @@ private:
 };
 }
 
+Config::Config() : _serversView(NULL), _selectedServer(NULL) {}
+
+Config::Config(const Config& other)
+    : _servers(other._servers), _serversView(other._serversView), _selectedServer(other._selectedServer) {}
+
+Config::Config(const std::vector<ServerBlock>& servers, const ServerBlock& selected)
+    : _serversView(&servers), _selectedServer(&selected) {}
+
+Config& Config::operator=(const Config& other)
+{
+    if (this == &other) return *this;
+    if (_serversView || other._serversView)
+        throw std::logic_error("request Config views cannot be assigned");
+    std::vector<ServerBlock> servers(other._servers);
+    _servers.swap(servers);
+    return *this;
+}
+
 void Config::load(const std::string& filePath)
 {
+    if (_serversView) throw std::logic_error("request Config views are read-only");
     std::vector<Token> tokens = tokenize(filePath);
     Parser parser(filePath, tokens);
     std::vector<ServerBlock> servers = parser.parse();
@@ -408,5 +427,58 @@ void Config::load(const std::string& filePath)
 
 const std::vector<ServerBlock>& Config::getServers() const
 {
-    return _servers;
+    return _serversView ? *_serversView : _servers;
+}
+
+Config Config::forServer(const ServerBlock& server) const
+{
+    const std::vector<ServerBlock>& servers = getServers();
+    for (std::size_t i = 0; i < servers.size(); ++i)
+        if (&servers[i] == &server) return Config(servers, server);
+    throw std::invalid_argument("selected server does not belong to this Config");
+}
+
+const ServerBlock* Config::getServerBlock(const std::string& host, int listenPort) const
+{
+    (void)host; // Name-based virtual hosts are outside this project's current configuration model.
+    if (_selectedServer)
+        return _selectedServer->getPort() == listenPort ? _selectedServer : NULL;
+    const ServerBlock* match = NULL;
+    const std::vector<ServerBlock>& servers = getServers();
+    for (std::size_t i = 0; i < servers.size(); ++i) {
+        if (servers[i].getPort() != listenPort) continue;
+        if (match) return NULL; // A port alone cannot distinguish two local interfaces.
+        match = &servers[i];
+    }
+    return match;
+}
+
+std::string Config::getErrorPage(int statusCode) const
+{
+    const std::vector<ServerBlock>& servers = getServers();
+    const ServerBlock* server = _selectedServer;
+    if (!server && servers.size() == 1) server = &servers[0];
+    if (!server) return "";
+    std::string uri = server->getErrorPage(statusCode);
+    if (uri.empty()) return "";
+    const LocationBlock* location = server->matchLocation(uri);
+    if (!location || location->getRoot().empty() || location->getRedirectCode()) return "";
+    std::string relative = uri.substr(location->getPath().size());
+    if (!relative.empty() && relative[0] == '/') relative.erase(0, 1);
+    // The imported error renderer reads a static file; do not expose a CGI script.
+    std::size_t start = 0;
+    while (start < relative.size()) {
+        std::size_t end = relative.find('/', start);
+        std::string segment = relative.substr(start, end - start);
+        std::size_t dot = segment.rfind('.');
+        if (dot != std::string::npos && location->getCgiExtension().count(segment.substr(dot))) return "";
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    std::string path = location->getRoot();
+    if (!relative.empty()) {
+        if (path[path.size() - 1] != '/') path += '/';
+        path += relative;
+    }
+    return path;
 }

@@ -26,7 +26,7 @@ DEPS = $(OBJS:.o=.d)
 
 .DEFAULT_GOAL := all
 .DELETE_ON_ERROR:
-.PHONY: all clean fclean re test test-cgi-routing test-cgi-launch test-cgi-response test-cgi-core
+.PHONY: all clean fclean re test test-cgi-routing test-cgi-launch test-cgi-response test-cgi-core test-config-compat
 
 all: $(NAME)
 
@@ -49,6 +49,7 @@ re:
 
 test: $(NAME)
 	python3 tests/run_config_tests.py
+	python3 tests/test_config_compat.py
 	python3 tests/run_cgi_routing_tests.py
 	python3 tests/test_cgi_launch.py
 	python3 tests/test_cgi_response.py
@@ -71,5 +72,8 @@ test-cgi-response:
 
 test-cgi-core:
 	python3 tests/test_cgi_core.py --isolated
+
+test-config-compat:
+	python3 tests/test_config_compat.py
 
 -include $(DEPS)
