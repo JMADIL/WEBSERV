@@ -3,13 +3,43 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Logout</title>
+    <meta name="theme-color" content="#72c4f3">
+    <title>Logout — Webserv</title>
+    <link rel="stylesheet" href="/aero.css">
 </head>
 <body>
-    <h1>Logout</h1>
-    <form action="/logout" method="post">
-        <button type="submit">Log out</button>
-    </form>
-    <p><a href="/">Home</a></p>
+    <div class="ambient" aria-hidden="true">
+        <span class="cloud one"></span><span class="cloud two"></span>
+        <span class="bubble one"></span><span class="bubble two"></span><span class="bubble three"></span>
+    </div>
+    <header class="site-header">
+        <div class="container nav-shell">
+            <a class="brand" href="/" aria-label="Webserv home"><span class="brand-orb" aria-hidden="true">W</span>Webserv</a>
+            <nav class="nav-links" aria-label="Main navigation">
+                <a href="/">Home</a>
+                <a href="/login">Login</a>
+                <a href="/logout" aria-current="page">Logout</a>
+            </nav>
+        </div>
+    </header>
+    <main class="container">
+        <div class="auth-layout glass">
+            <div class="auth-scene">
+                <h2>See you again soon.</h2>
+                <p>Your session is only one click away from ending.</p>
+            </div>
+            <section class="auth-content" aria-labelledby="logout-title">
+                <span class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Session demo</span>
+                <h1 id="logout-title">Ready to log out?</h1>
+                <p class="lead">End your current session and clear its browser cookie.</p>
+                <form action="/logout" method="post">
+                    <button class="btn btn-primary" type="submit">Log out →</button>
+                </form>
+                <a class="btn btn-secondary" href="/">Stay on the home page</a>
+                <p class="demo-note">Already logged out? This button can still clear the session cookie.</p>
+            </section>
+        </div>
+    </main>
+    <footer class="site-footer"><div class="container">Webserv · C++98 HTTP server project</div></footer>
 </body>
 </html>

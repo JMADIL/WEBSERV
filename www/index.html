@@ -1,3 +1,82 @@
-<!doctype html>
-<html lang="en"><meta charset="utf-8"><title>Webserv</title>
-<h1>Webserv is running</h1><p>The basic request and response flow is connected.</p></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#72c4f3">
+    <title>Webserv — Home</title>
+    <link rel="stylesheet" href="/aero.css">
+</head>
+<body>
+    <div class="ambient" aria-hidden="true">
+        <span class="cloud one"></span><span class="cloud two"></span>
+        <span class="bubble one"></span><span class="bubble two"></span><span class="bubble three"></span>
+    </div>
+    <header class="site-header">
+        <div class="container nav-shell">
+            <a class="brand" href="/" aria-label="Webserv home"><span class="brand-orb" aria-hidden="true">W</span>Webserv</a>
+            <nav class="nav-links" aria-label="Main navigation">
+                <a href="/" aria-current="page">Home</a>
+                <a href="/login">Login</a>
+                <a href="/logout">Logout</a>
+                <a href="/uploads">Uploads</a>
+                <a href="#cgi-tests">CGI tests</a>
+            </nav>
+        </div>
+    </header>
+    <main class="container">
+        <section class="hero glass" aria-labelledby="hero-title">
+            <div>
+                <span class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Your server is online</span>
+                <h1 id="hero-title">A brighter way to <span>serve the web.</span></h1>
+                <p class="lead">Welcome to Webserv, a C++98 HTTP server. Explore the pages, try the session demo, and see your project come to life.</p>
+                <div class="hero-actions">
+                    <a class="btn btn-primary" href="/login">Try the login demo →</a>
+                    <a class="btn btn-secondary" href="/uploads">Upload a file</a>
+                </div>
+            </div>
+            <div class="hero-art" aria-hidden="true"><span class="hero-orb"></span><span class="orb-small"></span></div>
+        </section>
+        <section aria-labelledby="explore-title">
+            <div class="section-heading">
+                <div>
+                    <h2 id="explore-title">Explore Webserv</h2>
+                    <p>A few places to start.</p>
+                </div>
+            </div>
+            <div class="cards">
+                <article class="card glass">
+                    <span class="card-icon" aria-hidden="true">✦</span>
+                    <h3>Login</h3>
+                    <p>Start a demo session with the login form.</p>
+                    <a href="/login">Open login →</a>
+                </article>
+                <article class="card glass">
+                    <span class="card-icon" aria-hidden="true">↗</span>
+                    <h3>Logout</h3>
+                    <p>End a session and clear its cookie.</p>
+                    <a href="/logout">Open logout →</a>
+                </article>
+                <article class="card glass">
+                    <span class="card-icon" aria-hidden="true">↑</span>
+                    <h3>Uploads</h3>
+                    <p>Send a file to the configured upload directory.</p>
+                    <a href="/uploads">Open uploads →</a>
+                </article>
+            </div>
+        </section>
+        <section id="cgi-tests" class="cgi-panel glass" aria-labelledby="cgi-title">
+            <span class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Dynamic responses</span>
+            <h2 id="cgi-title">Test CGI scripts</h2>
+            <p>Each button runs a script and shows the request details it received from Webserv.</p>
+            <div class="cgi-actions">
+                <a class="btn btn-primary" href="/cgi-bin/hello.py?source=home">Run Python CGI</a>
+                <a class="btn btn-secondary" href="/cgi-bin/hello.php?source=home">Run PHP CGI</a>
+                <a class="btn btn-secondary" href="/cgi-bin/hello.bash?source=home">Run Bash CGI</a>
+            </div>
+            <p class="cgi-note">The PHP example needs <code>php-cgi</code> installed at the path configured in Webserv.</p>
+        </section>
+    </main>
+    <footer class="site-footer"><div class="container">Webserv · C++98 HTTP server project</div></footer>
+</body>
+</html>

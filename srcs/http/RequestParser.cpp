@@ -60,16 +60,17 @@ RequestParser::ParseResult RequestParser::feed(std::string &buffer)
 
 RequestParser::ParseResult RequestParser::_parseRequestLine(std::string &buffer)
 {
+    const size_t maxRequestLine = 8192;
     size_t pos = buffer.find("\r\n");
-    if(pos == std::string::npos)
+    if ((pos == std::string::npos && buffer.length() > maxRequestLine) ||
+        (pos != std::string::npos && pos > maxRequestLine))
     {
-        if(buffer.length() > 8192)
-        {
-            _state = STATE_ERROR;
-            return PARSE_ERROR;
-        }
-        return PARSE_INCOMPLETE;
+        _state = STATE_ERROR;
+        return PARSE_ERROR;
     }
+
+    if (pos == std::string::npos)
+        return PARSE_INCOMPLETE;
 
     if (pos == 0)
     {

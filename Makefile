@@ -27,7 +27,7 @@ DEPS = $(OBJS:.o=.d)
 
 .DEFAULT_GOAL := all
 .DELETE_ON_ERROR:
-.PHONY: all clean fclean re test test-cgi-routing test-cgi-launch test-cgi-response test-cgi-core test-config-compat
+.PHONY: all clean fclean re test
 
 all: $(NAME)
 
@@ -49,32 +49,6 @@ re:
 	$(MAKE) all
 
 test: $(NAME)
-	python3 tests/run_config_tests.py
-	python3 tests/test_config_compat.py
-	python3 tests/run_cgi_routing_tests.py
-	python3 tests/test_cgi_launch.py
-	python3 tests/test_cgi_response.py
-	python3 tests/test_startup.py
-	python3 tests/run_core_tests.py
-	python3 tests/run_http_parser_tests.py
-	python3 tests/test_http.py
-	python3 tests/test_cgi_core.py
-	python3 tests/test_resources.py
-
-# This module can be checked while the unchanged HTTP/core interfaces are aligned.
-test-cgi-routing:
-	python3 tests/run_cgi_routing_tests.py
-
-test-cgi-launch:
-	python3 tests/test_cgi_launch.py
-
-test-cgi-response:
-	python3 tests/test_cgi_response.py
-
-test-cgi-core:
-	python3 tests/test_cgi_core.py --isolated
-
-test-config-compat:
-	python3 tests/test_config_compat.py
+	python3 tests/test_webserv.py
 
 -include $(DEPS)

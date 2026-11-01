@@ -3,17 +3,50 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Login</title>
+    <meta name="theme-color" content="#72c4f3">
+    <title>Login — Webserv</title>
+    <link rel="stylesheet" href="/aero.css">
 </head>
 <body>
-    <h1>Login</h1>
-    <form action="/login" method="post">
-        <label for="user">Username</label>
-        <input id="user" name="user" type="text" required>
-        <label for="password">Password</label>
-        <input id="password" name="password" type="password" required>
-        <button type="submit">Log in</button>
-    </form>
-    <p><a href="/">Home</a></p>
+    <div class="ambient" aria-hidden="true">
+        <span class="cloud one"></span><span class="cloud two"></span>
+        <span class="bubble one"></span><span class="bubble two"></span><span class="bubble three"></span>
+    </div>
+    <header class="site-header">
+        <div class="container nav-shell">
+            <a class="brand" href="/" aria-label="Webserv home"><span class="brand-orb" aria-hidden="true">W</span>Webserv</a>
+            <nav class="nav-links" aria-label="Main navigation">
+                <a href="/">Home</a>
+                <a href="/login" aria-current="page">Login</a>
+                <a href="/logout">Logout</a>
+            </nav>
+        </div>
+    </header>
+    <main class="container">
+        <div class="auth-layout glass">
+            <div class="auth-scene">
+                <h2>A fresh start, every visit.</h2>
+                <p>Sign in to try the Webserv session demo.</p>
+            </div>
+            <section class="auth-content" aria-labelledby="login-title">
+                <span class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Session demo</span>
+                <h1 id="login-title">Welcome back.</h1>
+                <p class="lead">Enter the demo account to start a session.</p>
+                <form action="/login" method="post">
+                    <div class="field">
+                        <label for="user">Username</label>
+                        <input id="user" name="user" type="text" placeholder="Your username" autocomplete="username" required autofocus>
+                    </div>
+                    <div class="field">
+                        <label for="password">Password</label>
+                        <input id="password" name="password" type="password" placeholder="Your password" autocomplete="current-password" required>
+                    </div>
+                    <button class="btn btn-primary" type="submit">Log in →</button>
+                </form>
+                <p class="demo-note"><strong>Demo account:</strong> username <code>demo</code>, password <code>demo-only</code>.</p>
+            </section>
+        </div>
+    </main>
+    <footer class="site-footer"><div class="container">Webserv · C++98 HTTP server project</div></footer>
 </body>
 </html>

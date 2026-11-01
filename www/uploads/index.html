@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#72c4f3">
+    <title>Uploads — Webserv</title>
+    <link rel="stylesheet" href="/aero.css">
+</head>
+<body>
+    <div class="ambient" aria-hidden="true">
+        <span class="cloud one"></span><span class="cloud two"></span>
+        <span class="bubble one"></span><span class="bubble two"></span><span class="bubble three"></span>
+    </div>
+    <header class="site-header">
+        <div class="container nav-shell">
+            <a class="brand" href="/" aria-label="Webserv home"><span class="brand-orb" aria-hidden="true">W</span>Webserv</a>
+            <nav class="nav-links" aria-label="Main navigation">
+                <a href="/">Home</a>
+                <a href="/login">Login</a>
+                <a href="/logout">Logout</a>
+                <a href="/uploads" aria-current="page">Uploads</a>
+            </nav>
+        </div>
+    </header>
+    <main class="container">
+        <section class="upload-panel glass" aria-labelledby="upload-title">
+            <span class="eyebrow"><span class="status-dot" aria-hidden="true"></span> File uploads</span>
+            <h1 id="upload-title">Send a file <span>to Webserv.</span></h1>
+            <p class="lead">Choose a file and send it to <code>www/uploads</code>. Webserv saves its raw bytes and gives it a unique name.</p>
+            <form id="upload-form" class="upload-form">
+                <label for="upload-file">Choose a file</label>
+                <input id="upload-file" name="file" type="file" required>
+                <button class="btn btn-primary" type="submit">Upload file →</button>
+            </form>
+            <p id="upload-result" class="upload-result" role="status" aria-live="polite"></p>
+            <p class="upload-help">Maximum file size: 10 MiB. This demo uses JavaScript to send the file directly as the POST body.</p>
+            <noscript><p class="upload-help">Enable JavaScript to upload from this page.</p></noscript>
+        </section>
+    </main>
+    <footer class="site-footer"><div class="container">Webserv · C++98 HTTP server project</div></footer>
+    <script>
+        const form = document.getElementById('upload-form');
+        const fileInput = document.getElementById('upload-file');
+        const result = document.getElementById('upload-result');
+        const submit = form.querySelector('button');
+
+        form.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            const file = fileInput.files[0];
+            if (!file) return;
+            if (file.size > 10 * 1024 * 1024) {
+                result.textContent = 'The file is larger than the 10 MiB upload limit.';
+                return;
+            }
+
+            const cleanName = file.name.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '').slice(0, 80) || 'file';
+            const uniqueName = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8) + '-' + cleanName;
+            const destination = '/uploads/' + encodeURIComponent(uniqueName);
+            submit.disabled = true;
+            result.textContent = 'Uploading…';
+
+            try {
+                const response = await fetch(destination, {
+                    method: 'POST',
+                    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+                    body: file
+                });
+                if (response.status !== 201) {
+                    result.textContent = 'Upload failed (HTTP ' + response.status + ').';
+                    return;
+                }
+                result.textContent = 'Uploaded successfully: ';
+                const link = document.createElement('a');
+                link.href = destination;
+                link.textContent = uniqueName;
+                result.appendChild(link);
+                form.reset();
+            } catch (error) {
+                result.textContent = 'Upload failed. Check that Webserv is running.';
+            } finally {
+                submit.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
