@@ -378,8 +378,8 @@ void Server::finishCgiJobs()
 
 void Server::processInput(Client& client)
 {
-    RequestParser::ParseResult result = client.getParser().feed(client.getReadBuffer());
-    if (result == RequestParser::PARSE_HEADERS_COMPLETE) {
+    RequestParserAdapter::ParseResult result = client.getParser().feed(client.getReadBuffer());
+    if (result == RequestParserAdapter::PARSE_HEADERS_COMPLETE) {
         const LocationBlock* location = client.getServerBlock().matchLocation(client.getRequest().uri);
         client.getParser().setBodyLimit(location ? location->getClientMaxBodySize()
                                                 : client.getServerBlock().getClientMaxBodySize());
@@ -393,11 +393,11 @@ void Server::processInput(Client& client)
         }
         result = client.getParser().feed(client.getReadBuffer());
     }
-    if (result == RequestParser::PARSE_ERROR) {
+    if (result == RequestParserAdapter::PARSE_ERROR) {
         client.setCloseAfterResponse(true);
         const Config requestConfig = _config.forServer(client.getServerBlock());
         ResponseBuilder::buildErrorResponse(client, client.getParser().getErrorCode(), &requestConfig);
-    } else if (result == RequestParser::PARSE_COMPLETE) {
+    } else if (result == RequestParserAdapter::PARSE_COMPLETE) {
         client.setState(STATE_BUILDING_RESPONSE);
         buildResponseForClient(client);
     }
@@ -409,7 +409,9 @@ void Server::buildResponseForClient(Client& client)
     const Config requestConfig = _config.forServer(client.getServerBlock());
     const LocationBlock* location = client.getServerBlock().matchLocation(client.getRequest().uri);
     bool cgi = location && CgiHandler::isCgi(client.getRequest().uri, *location);
-    ResponseBuilder::buildResponse(client, requestConfig);
+    client.setCloseAfterResponse(!client.getRequest().keepAlive());
+    if (!cgi && location && CgiHandler::handleIndex(client, *location)) cgi = true;
+    else ResponseBuilder::buildResponse(client, requestConfig);
     int status = client.getResponse().statusCode;
     // Some imported file handlers omit Config when rendering errors. Supply the site context here.
     if (!cgi && client.getState() == STATE_WRITING_RESPONSE && status >= 400
@@ -425,6 +427,16 @@ void Server::buildResponseForClient(Client& client)
         }
         client.setCloseAfterResponse(true);
         client.getWriteBuffer() = client.getResponse().serialize();
+    }
+    // Respect the HTTP module's explicit close policy without reserializing CGI cookies.
+    for (std::map<std::string, std::string>::const_iterator it = client.getResponse().headers.begin();
+         it != client.getResponse().headers.end(); ++it) {
+        std::string name = it->first, value = it->second;
+        for (std::size_t i = 0; i < name.size(); ++i)
+            if (name[i] >= 'A' && name[i] <= 'Z') name[i] += 'a' - 'A';
+        for (std::size_t i = 0; i < value.size(); ++i)
+            if (value[i] >= 'A' && value[i] <= 'Z') value[i] += 'a' - 'A';
+        if (name == "connection" && value == "close") client.setCloseAfterResponse(true);
     }
 }
 

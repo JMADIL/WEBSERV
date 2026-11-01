@@ -80,6 +80,8 @@ void Client::reset()
     if (_fileFd >= 0) close(_fileFd);
     _fileFd = -1; _fileRemaining = 0;
     std::string().swap(_writeBuffer);
+    if (_readBuffer.capacity() > 65536 && _readBuffer.size() < _readBuffer.capacity() / 2)
+        std::string(_readBuffer).swap(_readBuffer);
     _sentOffset = 0;
     _closeAfterResponse = true;
     _state = STATE_READING_REQUEST;
@@ -93,7 +95,7 @@ void Client::reset()
     _requestStart = _lastProgress;
 }
 
-RequestParser& Client::getParser() { return _parser; }
+RequestParserAdapter& Client::getParser() { return _parser; }
 HttpRequest& Client::getRequest() { return _parser.getRequest(); }
 HttpResponse& Client::getResponse() { return _response; }
 void Client::markProgress() { _lastProgress = std::time(NULL); }

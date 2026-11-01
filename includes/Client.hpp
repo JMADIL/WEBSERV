@@ -5,7 +5,7 @@
 # include <string>
 # include <cstddef>
 # include <ctime>
-# include "RequestParser.hpp"
+# include "RequestParserAdapter.hpp"
 # include "HttpResponse.hpp"
 
 class Server;
@@ -50,7 +50,7 @@ public:
     void setCloseAfterResponse(bool close);
     void resetTransport();
     void reset();
-    RequestParser& getParser();
+    RequestParserAdapter& getParser();
     HttpRequest& getRequest();
     HttpResponse& getResponse();
     void markProgress();
@@ -80,7 +80,7 @@ private:
     std::string _writeBuffer;
     std::size_t _sentOffset;
     bool _closeAfterResponse;
-    RequestParser _parser;
+    RequestParserAdapter _parser;
     HttpResponse _response;
     std::time_t _lastProgress;
     std::time_t _requestStart;

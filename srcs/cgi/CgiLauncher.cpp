@@ -168,6 +168,8 @@ CgiHandler::Process CgiHandler::spawn(Client& client, const Target& target, cons
     std::size_t slash = target.scriptPath.rfind('/');
     std::string directory = slash == 0 ? "/" : target.scriptPath.substr(0, slash);
     std::string filename = target.scriptPath.substr(slash + 1);
+    // A script basename beginning with '-' must not become an interpreter option.
+    std::string argument = filename[0] == '-' ? "./" + filename : filename;
     std::vector<std::string> environment;
     environmentFor(client, target, filename, environment);
     std::vector<char*> envp;
@@ -176,7 +178,7 @@ CgiHandler::Process CgiHandler::spawn(Client& client, const Target& target, cons
         envp.push_back(const_cast<char*>(environment[i].c_str()));
     envp.push_back(NULL);
     char* argv[3] = {const_cast<char*>(target.interpreter.c_str()),
-                     const_cast<char*>(filename.c_str()), NULL};
+                     const_cast<char*>(argument.c_str()), NULL};
 
     PipeEnds pipes;
     if (pipe(pipes.input) < 0 || pipe(pipes.output) < 0)

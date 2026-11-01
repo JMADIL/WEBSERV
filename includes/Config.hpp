@@ -17,6 +17,7 @@ public:
     Config forServer(const ServerBlock& server) const;
     const ServerBlock* getServerBlock(const std::string& host, int listenPort) const;
     std::string getErrorPage(int statusCode) const;
+    static std::string resolveErrorPage(const ServerBlock& server, int statusCode);
 
 private:
     std::vector<ServerBlock> _servers;

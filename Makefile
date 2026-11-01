@@ -10,6 +10,7 @@ SRCS = srcs/main.cpp \
        srcs/config/LocationBlock.cpp \
        srcs/core/Server.cpp \
        srcs/core/Client.cpp \
+       srcs/core/RequestParserAdapter.cpp \
        srcs/http/HttpRequest.cpp \
        srcs/http/HttpResponse.cpp \
        srcs/http/RequestParser.cpp \
@@ -18,15 +19,13 @@ SRCS = srcs/main.cpp \
        srcs/cgi/CgiHandler.cpp \
        srcs/cgi/CgiBridge.cpp \
        srcs/cgi/CgiLauncher.cpp \
-       srcs/cgi/CgiResponse.cpp \
-       srcs/sessions/Session.cpp \
-       srcs/sessions/SessionManager.cpp
+       srcs/cgi/CgiResponse.cpp
 OBJS = $(SRCS:%.cpp=build/%.o)
 DEPS = $(OBJS:.o=.d)
 
 .DEFAULT_GOAL := all
 .DELETE_ON_ERROR:
-.PHONY: all clean fclean re test test-cgi-routing test-cgi-launch test-cgi-response test-cgi-core test-config-compat
+.PHONY: all clean fclean re test test-owned test-http test-cgi-routing test-cgi-launch test-cgi-response test-cgi-core test-config-compat test-cgi-e2e
 
 all: $(NAME)
 
@@ -47,7 +46,9 @@ re:
 	$(MAKE) fclean
 	$(MAKE) all
 
-test: $(NAME)
+test: test-owned test-http
+
+test-owned: $(NAME)
 	python3 tests/run_config_tests.py
 	python3 tests/test_config_compat.py
 	python3 tests/run_cgi_routing_tests.py
@@ -56,11 +57,20 @@ test: $(NAME)
 	python3 tests/test_startup.py
 	python3 tests/run_core_tests.py
 	python3 tests/run_http_parser_tests.py
-	python3 tests/test_http.py
 	python3 tests/test_cgi_core.py
 	python3 tests/test_resources.py
+	python3 tests/test_cgi_e2e.py
+	python3 tests/test_http.py
+	python3 tests/test_examples.py
 
-# This module can be checked while the unchanged HTTP/core interfaces are aligned.
+# The full HTTP acceptance checks remain red until the HTTP owner fixes the listed failures.
+test-http: $(NAME)
+	python3 tests/test_http_pending.py
+
+test-cgi-e2e: $(NAME)
+	python3 tests/test_cgi_e2e.py
+
+# Resolver checks can run without starting a server.
 test-cgi-routing:
 	python3 tests/run_cgi_routing_tests.py
 
@@ -71,7 +81,7 @@ test-cgi-response:
 	python3 tests/test_cgi_response.py
 
 test-cgi-core:
-	python3 tests/test_cgi_core.py --isolated
+	python3 tests/test_cgi_core.py
 
 test-config-compat:
 	python3 tests/test_config_compat.py

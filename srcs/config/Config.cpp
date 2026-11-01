@@ -290,6 +290,15 @@ private:
                 std::size_t code = number(args[0], 999);
                 if (code != 301 && code != 302)
                     error(args[0], "redirect supports only 301 and 302");
+                if (args[1].text[0] != '/' && args[1].text.compare(0, 7, "http://") != 0
+                    && args[1].text.compare(0, 8, "https://") != 0)
+                    error(args[1], "redirect requires an absolute URL or a path beginning with '/'");
+                if (args[1].text[0] != '/') {
+                    std::size_t host = args[1].text.find("://") + 3;
+                    if (host == args[1].text.size() || args[1].text[host] == '/'
+                        || args[1].text[host] == '?' || args[1].text[host] == ':')
+                        error(args[1], "redirect URL requires a host");
+                }
                 location.setRedirect(static_cast<int>(code), args[1].text);
             }
             else if (name.text == "cgi_extension")
@@ -314,7 +323,7 @@ private:
                     location.setRoot(value);
                 else if (name.text == "index")
                 {
-                    if (value == "." || value == ".." || value.find('/') != std::string::npos)
+                    if (value == "." || value == ".." || value.find_first_of("/?%") != std::string::npos)
                         error(args[0], "index must be a single filename");
                     location.setIndex(value);
                 }
@@ -459,9 +468,14 @@ std::string Config::getErrorPage(int statusCode) const
     const ServerBlock* server = _selectedServer;
     if (!server && servers.size() == 1) server = &servers[0];
     if (!server) return "";
-    std::string uri = server->getErrorPage(statusCode);
+    return resolveErrorPage(*server, statusCode);
+}
+
+std::string Config::resolveErrorPage(const ServerBlock& server, int statusCode)
+{
+    std::string uri = server.getErrorPage(statusCode);
     if (uri.empty()) return "";
-    const LocationBlock* location = server->matchLocation(uri);
+    const LocationBlock* location = server.matchLocation(uri);
     if (!location || location->getRoot().empty() || location->getRedirectCode()) return "";
     std::string relative = uri.substr(location->getPath().size());
     if (!relative.empty() && relative[0] == '/') relative.erase(0, 1);

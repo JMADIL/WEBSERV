@@ -1,5 +1,6 @@
 #include "CgiResponse.hpp"
 #include "Client.hpp"
+#include "Config.hpp"
 #include <limits>
 #include <set>
 #include <sstream>
@@ -7,10 +8,49 @@
 #include <utility>
 #include <vector>
 #include <sys/wait.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 namespace {
 typedef std::pair<std::string, std::string> Field;
 typedef std::vector<Field> Fields;
+
+bool errorDocument(const std::string& path, std::string& body)
+{
+    if (path.empty()) return false;
+    struct File {
+        int fd;
+        File() : fd(-1) {}
+        ~File() { if (fd >= 0) close(fd); }
+    } file;
+    // As with scripts, configured roots must not be renamed by an untrusted writer.
+    std::size_t start = path[0] == '/' ? 1 : 0;
+    while (true) {
+        std::size_t end = path.find('/', start);
+        std::string prefix = path.substr(0, end);
+        if (!prefix.empty()) {
+            file.fd = open(prefix.c_str(), O_RDONLY | O_NONBLOCK | O_NOFOLLOW
+                           | (end == std::string::npos ? 0 : O_DIRECTORY));
+            if (file.fd < 0) return false;
+            if (end != std::string::npos) { close(file.fd); file.fd = -1; }
+        }
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    struct stat info;
+    if (stat(path.c_str(), &info) < 0 || !S_ISREG(info.st_mode)
+        || info.st_size < 0 || info.st_size > 1024 * 1024) return false;
+    std::string content;
+    char data[16384];
+    while (true) {
+        ssize_t n = read(file.fd, data, sizeof(data)); // Verified regular files are poll-exempt.
+        if (n < 0) return false;
+        if (!n) { body.swap(content); return true; }
+        if (static_cast<std::size_t>(n) > 1024u * 1024u - content.size()) return false;
+        content.append(data, static_cast<std::size_t>(n));
+    }
+}
 std::string lower(std::string value)
 {
     for (std::size_t i = 0; i < value.size(); ++i)
@@ -255,7 +295,9 @@ void CgiResponse::onCgiError(Client& client, int httpStatus)
     description.setStatus(httpStatus);
     if (httpStatus == 503) description.statusText = "Service Unavailable";
     Fields fields;
-    fields.push_back(Field("Content-Type", "text/plain"));
+    std::string body = description.statusText + "\n";
+    bool custom = errorDocument(Config::resolveErrorPage(client.getServerBlock(), httpStatus), body);
+    fields.push_back(Field("Content-Type", custom ? "text/html" : "text/plain"));
     if (httpStatus == 405) {
         const LocationBlock* location = client.getServerBlock().matchLocation(client.getRequest().uri);
         if (location) {
@@ -267,5 +309,5 @@ void CgiResponse::onCgiError(Client& client, int httpStatus)
             fields.push_back(Field("Allow", allow));
         }
     }
-    queue(client, httpStatus, description.statusText, fields, description.statusText + "\n", 0);
+    queue(client, httpStatus, description.statusText, fields, body, 0);
 }
