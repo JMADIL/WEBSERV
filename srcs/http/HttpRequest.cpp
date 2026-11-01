@@ -52,16 +52,13 @@ bool HttpRequest::keepAlive() const
     if(hasHeader("connection"))
     {
         std::string conn = toLowerString(getHeader("connection"));
-        size_t start = 0;
-        while (start <= conn.size()) {
-            size_t end = conn.find(',', start);
-            std::string item = conn.substr(start, end - start);
-            size_t a = item.find_first_not_of(" \t");
-            if (a != std::string::npos && item.substr(a, item.find_last_not_of(" \t") - a + 1) == "close")
-                return false;
-            if (end == std::string::npos) break;
-            start = end + 1;
-        }
+        if(conn == "close")
+            return false;
+        if(conn == "keep-alive")
+            return true;
     }
-    return version == "HTTP/1.1";
+
+    if (version == "HTTP/1.1")
+        return true;
+    return false;
 }

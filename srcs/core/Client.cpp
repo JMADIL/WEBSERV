@@ -3,8 +3,8 @@
 #include <unistd.h>
 #include <limits>
 
-Client::Client(int fd, const ServerBlock& server)
-    : _fd(fd), _server(server), _state(STATE_READING_REQUEST),
+Client::Client(int fd, const ServerBlock& server, Server* runtime)
+    : _fd(fd), _server(server), _runtime(runtime), _remotePort(0), _state(STATE_READING_REQUEST),
       _sentOffset(0), _closeAfterResponse(true),
       _lastProgress(std::time(NULL)), _requestStart(_lastProgress),
       _fileFd(-1), _fileRemaining(0)
@@ -17,6 +17,11 @@ Client::~Client() { if (_fileFd >= 0) close(_fileFd); }
 int Client::getFd() const { return _fd; }
 int Client::getListenPort() const { return _server.getPort(); }
 const ServerBlock& Client::getServerBlock() const { return _server; }
+Server* Client::getRuntimeServer() const { return _runtime; }
+const std::string& Client::getRemoteAddress() const { return _remoteAddress; }
+unsigned short Client::getRemotePort() const { return _remotePort; }
+void Client::setPeer(const std::string& address, unsigned short port)
+{ _remoteAddress = address; _remotePort = port; }
 ClientState Client::getState() const { return _state; }
 void Client::setState(ClientState state) { _state = state; }
 std::string& Client::getReadBuffer() { return _readBuffer; }
@@ -87,6 +92,7 @@ std::size_t Client::bufferedBytes()
 {
     HttpRequest& request = _parser.getRequest();
     std::size_t bytes = sizeof(Client);
+    addSize(bytes, _remoteAddress.capacity());
     addSize(bytes, _readBuffer.capacity()); addSize(bytes, _writeBuffer.capacity());
     addSize(bytes, request.body.capacity()); addSize(bytes, _response.body.capacity());
     addSize(bytes, request.method.capacity()); addSize(bytes, request.uri.capacity());

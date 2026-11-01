@@ -13,13 +13,17 @@ SRCS = srcs/main.cpp \
        srcs/http/HttpRequest.cpp \
        srcs/http/HttpResponse.cpp \
        srcs/http/RequestParser.cpp \
-       srcs/http/ResponseBuilder.cpp
+       srcs/http/ResponseBuilder.cpp \
+       srcs/utils/MimeTypes.cpp \
+       srcs/cgi/CgiHandler.cpp \
+       srcs/cgi/CgiBridge.cpp \
+       srcs/cgi/CgiLauncher.cpp
 OBJS = $(SRCS:%.cpp=build/%.o)
 DEPS = $(OBJS:.o=.d)
 
 .DEFAULT_GOAL := all
 .DELETE_ON_ERROR:
-.PHONY: all clean fclean re test
+.PHONY: all clean fclean re test test-cgi-routing test-cgi-launch
 
 all: $(NAME)
 
@@ -42,11 +46,20 @@ re:
 
 test: $(NAME)
 	python3 tests/run_config_tests.py
+	python3 tests/run_cgi_routing_tests.py
+	python3 tests/test_cgi_launch.py
 	python3 tests/test_startup.py
 	python3 tests/run_core_tests.py
 	python3 tests/run_http_parser_tests.py
 	python3 tests/test_http.py
 	python3 tests/test_cgi_core.py
 	python3 tests/test_resources.py
+
+# This module can be checked while the unchanged HTTP/core interfaces are aligned.
+test-cgi-routing:
+	python3 tests/run_cgi_routing_tests.py
+
+test-cgi-launch:
+	python3 tests/test_cgi_launch.py
 
 -include $(DEPS)
