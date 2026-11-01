@@ -26,8 +26,7 @@ OBJS = $(SRCS:%.cpp=build/%.o)
 DEPS = $(OBJS:.o=.d)
 
 .DEFAULT_GOAL := all
-.DELETE_ON_ERROR:
-.PHONY: all clean fclean re test
+.PHONY: all clean fclean re
 
 all: $(NAME)
 
@@ -47,8 +46,5 @@ fclean: clean
 re:
 	$(MAKE) fclean
 	$(MAKE) all
-
-test: $(NAME)
-	python3 tests/test_webserv.py
 
 -include $(DEPS)
