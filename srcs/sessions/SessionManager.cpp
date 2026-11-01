@@ -78,3 +78,5 @@ void SessionManager::cleanExpiredSessions()
         }
     }
 }
+
+#endif
