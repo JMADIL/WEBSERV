@@ -5,6 +5,7 @@
 #include "LocationBlock.hpp"
 #include "MimeTypes.hpp"
 #include "CgiHandler.hpp"
+#include "AuthHandlers.hpp"
 
 #include <iostream>
 #include <fstream>
@@ -17,7 +18,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 
-void ResponseBuilder::buildResponse(Client &client, const Config &config)
+void ResponseBuilder::buildResponse(Client &client, const Config &config, SessionManager &sessions)
 {
     const HttpRequest &req = client.getRequest();
     int listenPort = client.getListenPort();
@@ -63,8 +64,9 @@ void ResponseBuilder::buildResponse(Client &client, const Config &config)
                 allowHeader += ", ";
             allowHeader += allowed[i];
         }
-        client.getResponse().setHeader("Allow", allowHeader);
         buildErrorResponse(client, 405, &config);
+        client.getResponse().setHeader("Allow", allowHeader);
+        client.getWriteBuffer() = client.getResponse().serialize();
         return;
     }
 
@@ -80,7 +82,11 @@ void ResponseBuilder::buildResponse(Client &client, const Config &config)
         return;
     }
 
-    if (req.method == "GET")
+    if (req.uri == "/login" && req.method == "POST")
+        handleLogin(client, sessions);
+    else if (req.uri == "/logout" && req.method == "POST")
+        handleLogout(client, sessions);
+    else if (req.method == "GET")
         _handleGET(client, *loc, *server);
     else if (req.method == "POST")
         _handlePOST(client, *loc, *server);

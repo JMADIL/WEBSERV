@@ -10,11 +10,12 @@ class Client;
 class Config;
 class ServerBlock;
 class LocationBlock;
+class SessionManager;
 
 class ResponseBuilder
 {
     public:
-        static void buildResponse(Client &client, const Config &config);
+        static void buildResponse(Client &client, const Config &config, SessionManager &sessions);
 
         static void buildErrorResponse(Client &client, int statusCode,  const Config *config = NULL);
     private:

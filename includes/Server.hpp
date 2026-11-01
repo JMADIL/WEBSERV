@@ -11,6 +11,7 @@
 # include "CgiCallbacks.hpp"
 # include "CoreLimits.hpp"
 # include "CgiHandler.hpp"
+# include "SessionManager.hpp"
 
 class Server
 {
@@ -47,6 +48,7 @@ private:
 
     const Config& _config;
     const CoreLimits _limits;
+    SessionManager _sessions;
     std::vector<Listener> _listeners;
     std::map<int, Client*> _clients;
     bool _insideCgiCallback;

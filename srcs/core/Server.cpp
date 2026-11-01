@@ -81,7 +81,7 @@ sockaddr_in addressFor(const ServerBlock& server)
 }
 
 Server::Server(const Config& config, const CoreLimits& limits)
-    : _config(config), _limits(limits), _insideCgiCallback(false), _running(false)
+    : _config(config), _limits(limits), _sessions(), _insideCgiCallback(false), _running(false)
 {
     if (!limits.maxClients || limits.maxClients > MAX_CLIENTS
         || !limits.maxListeners || limits.maxListeners > 1024
@@ -409,7 +409,7 @@ void Server::buildResponseForClient(Client& client)
     const Config requestConfig = _config.forServer(client.getServerBlock());
     const LocationBlock* location = client.getServerBlock().matchLocation(client.getRequest().uri);
     bool cgi = location && CgiHandler::isCgi(client.getRequest().uri, *location);
-    ResponseBuilder::buildResponse(client, requestConfig);
+    ResponseBuilder::buildResponse(client, requestConfig, _sessions);
     int status = client.getResponse().statusCode;
     // Some imported file handlers omit Config when rendering errors. Supply the site context here.
     if (!cgi && client.getState() == STATE_WRITING_RESPONSE && status >= 400

@@ -146,6 +146,11 @@ RequestParser::ParseResult RequestParser::_parseHeaders(std::string &buffer)
                 _state = STATE_ERROR;
                 return PARSE_ERROR;
             }
+            if (_request.hasHeader("transfer-encoding") && _request.hasHeader("content-length"))
+            {
+                _state = STATE_ERROR;
+                return PARSE_ERROR;
+            }
             if(_request.hasHeader("transfer-encoding"))
             {
                 std::string te = _toLower(_request.getHeader("transfer-encoding"));
@@ -164,19 +169,27 @@ RequestParser::ParseResult RequestParser::_parseHeaders(std::string &buffer)
             if(_request.hasHeader("content-length"))
             {
                 std::string clStr = _request.getHeader("content-length");
+                if (clStr.empty())
+                {
+                    _state = STATE_ERROR;
+                    return PARSE_ERROR;
+                }
+                size_t length = 0;
                 for(size_t i = 0; i < clStr.length(); ++i)
                 {
-                    if(!std::isdigit(static_cast<unsigned char>(clStr[i])))
+                    if (clStr[i] < '0' || clStr[i] > '9')
                     {
                         _state = STATE_ERROR;
                         return PARSE_ERROR;
                     }
-
+                    size_t digit = static_cast<size_t>(clStr[i] - '0');
+                    if (length > (std::numeric_limits<size_t>::max() - digit) / 10)
+                    {
+                        _state = STATE_ERROR;
+                        return PARSE_ERROR;
+                    }
+                    length = length * 10 + digit;
                 }
-
-                std::istringstream clStream(clStr);
-                size_t length = 0;
-                clStream >> length;
 
                 _request.contentLength = length;
                 if(length > 0)
@@ -215,6 +228,11 @@ RequestParser::ParseResult RequestParser::_parseHeaders(std::string &buffer)
         }
 
         if (key == "host" && _request.hasHeader("host"))
+        {
+            _state = STATE_ERROR;
+            return PARSE_ERROR;
+        }
+        if ((key == "content-length" || key == "transfer-encoding") && _request.hasHeader(key))
         {
             _state = STATE_ERROR;
             return PARSE_ERROR;
@@ -398,10 +416,12 @@ std::string RequestParser::_decodeURI(const std::string &uri)
 
     for(size_t i = 0; i < uri.length(); ++i)
     {
-        if (uri[i] == '%' && i + 2 < uri.length() &&
-            std::isxdigit(static_cast<unsigned char>(uri[i + 1])) &&
-            std::isxdigit(static_cast<unsigned char>(uri[i + 2])))
+        if (uri[i] == '%')
         {
+            if (i + 2 >= uri.length() ||
+                !std::isxdigit(static_cast<unsigned char>(uri[i + 1])) ||
+                !std::isxdigit(static_cast<unsigned char>(uri[i + 2])))
+                return "";
             std::string hexStr = uri.substr(i + 1, 2);
             std::istringstream hexStream(hexStr);
             int value = 0;
@@ -413,6 +433,9 @@ std::string RequestParser::_decodeURI(const std::string &uri)
         {
             decoded += uri[i];
         }
+        unsigned char last = static_cast<unsigned char>(decoded[decoded.length() - 1]);
+        if (last < 32 || last == 127 || last == '\\' || last == '#')
+            return "";
     }
 
     if (decoded.find("/../") != std::string::npos ||

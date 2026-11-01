@@ -20,7 +20,8 @@ SRCS = srcs/main.cpp \
        srcs/cgi/CgiLauncher.cpp \
        srcs/cgi/CgiResponse.cpp \
        srcs/sessions/Session.cpp \
-       srcs/sessions/SessionManager.cpp
+       srcs/sessions/SessionManager.cpp \
+       srcs/sessions/AuthHandlers.cpp
 OBJS = $(SRCS:%.cpp=build/%.o)
 DEPS = $(OBJS:.o=.d)
 
