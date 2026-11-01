@@ -22,6 +22,7 @@ class HttpResponse
         void        setBody(const std::vector<char> &content);
         std::string serialize() const;
         void        reset();
+        void setCookie(const std::string &name, const std::string &value, int maxAge = -1, const std::string &path = "/", bool httpOnly = true);
 
     private:
         static std::string _getStatusText(int code);

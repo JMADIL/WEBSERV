@@ -346,14 +346,17 @@ void Server::finishCgiJobs()
         Client* client = getClient(current->clientFd);
         if (!client) { cancelCgi(current); continue; }
         int fd = current->clientFd;
+        bool redirect = false;
         try {
             client->setState(STATE_BUILDING_RESPONSE);
             _insideCgiCallback = true;
             if (current->errorStatus) current->callbacks->onCgiError(*client, current->errorStatus);
             else current->callbacks->onCgiComplete(*client, current->output, current->waitStatus);
             _insideCgiCallback = false;
-            if (client->getState() != STATE_WRITING_RESPONSE || client->getWriteBuffer().empty())
-                throw std::logic_error("CGI callback must queue a response");
+            redirect = client->hasCgiRedirect();
+            if (redirect ? client->getState() != STATE_BUILDING_RESPONSE || !client->getWriteBuffer().empty()
+                         : client->getState() != STATE_WRITING_RESPONSE || client->getWriteBuffer().empty())
+                throw std::logic_error("CGI callback must queue a response or local redirect");
             if (overBudget()) throw std::runtime_error("CGI response exceeds buffer budget");
             // Give output its own bounded phase after a potentially long CGI job.
             client->beginResponseDeadline();
@@ -362,6 +365,14 @@ void Server::finishCgiJobs()
             cancelCgi(current); closeClient(fd); continue;
         }
         cancelCgi(current);
+        if (redirect) {
+            try {
+                // Redispatch only after callback return and the old job's cleanup.
+                pollCgiChildren();
+                client->applyCgiRedirect();
+                ResponseBuilder::buildResponse(*client, _config);
+            } catch (const std::exception&) { closeClient(fd); }
+        }
     }
 }
 

@@ -1,8 +1,9 @@
-#pragma once 
+#ifndef HTTPREQUEST_HPP
+# define HTTPREQUEST_HPP
 
-#include<map>
-#include<string>
-#include<vector>
+# include <map>
+# include <string>
+# include <vector>
 
 class HttpRequest
 {
@@ -26,4 +27,7 @@ class HttpRequest
         std::string getHeader(const std::string &key) const;
         bool        hasHeader(const std::string &key) const;
         bool        keepAlive() const;
+        std::string getCookie(const std::string &name) const;
 };
+
+#endif

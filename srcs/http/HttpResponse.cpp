@@ -108,3 +108,18 @@ std::string HttpResponse::_getStatusText(int code)
         default:  return "Unknown Status";
     }
 }
+
+void HttpResponse::setCookie(const std::string  &name, const std::string &value, int maxAge, const std::string &path, bool httpOnly)
+{
+    std::ostringstream oss;
+    oss << name << "=" << value;
+
+    if(!path.empty())
+        oss << "; Path=" << path;
+    if (maxAge >= 0)
+        oss << "; Max-Age=" << maxAge;
+    if (httpOnly)
+        oss << "; HttpOnly";
+
+    setHeader("Set-Cookie", oss.str());
+}
