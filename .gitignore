@@ -1,0 +1,19 @@
+# Compilation & Build artifacts
+webserv
+build/
+*.o
+*.d
+
+# Runtime uploads
+www/uploads/*
+!www/uploads/index.html
+!www/uploads/.gitkeep
+
+# System & Editor files
+__pycache__/
+*.py[cod]
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
